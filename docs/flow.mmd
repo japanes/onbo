@@ -1,0 +1,21 @@
+flowchart TD
+    C[Channel: Telegram / Web / Voice] --> A[Adapter]
+    A -->|audio| STT[STT service faster-whisper]
+    STT --> E[Unified JSON Envelope]
+    A -->|text| E
+    E --> AUTH[Auth: profile role/department]
+    AUTH --> CL[LLM Classifier -> list of actions]
+    CL --> R{Router per action}
+    R -->|rag_query| RAG[Qdrant search + access filter -> answer with source]
+    R -->|about| ABT[Introspect actions/channels/collections for this role]
+    R -->|action chat| ACT[Validate -> call product API now]
+    R -->|action confirm| CNF[Ok/Cancel card, park in Redis -> API on Ok]
+    R -->|action link| LNK[Return deep-link, sensitive data]
+    R -->|unknown| UNK[Add to 'could not' + reason]
+    RAG --> AGG[Aggregator: one response]
+    ABT --> AGG
+    ACT --> AGG
+    CNF --> AGG
+    LNK --> AGG
+    UNK --> AGG
+    AGG --> OUT[Response back to the same channel]

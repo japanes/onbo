@@ -1,0 +1,33 @@
+# onbo runtime configuration. ${VARS} are expanded from the environment.
+
+llm:
+  model: gpt-4o-mini          # any LiteLLM-supported model (local or cloud)
+  api_key: ${OPENAI_API_KEY}
+  api_base: null
+
+embedding:
+  model: BAAI/bge-m3          # open-source embeddings (bge-m3 / e5)
+
+qdrant:
+  url: http://localhost:6333
+  collection: onbo
+
+postgres_dsn: ${POSTGRES_DSN}
+redis_url: ${REDIS_URL}
+
+stt:
+  enabled: true               # global voice-input switch (faster-whisper)
+  model: base
+
+tts:
+  enabled: false              # answer voice-over — deferred (Piper); input only for now
+  model: piper
+
+channels:
+  telegram:
+    enabled: true
+    accept_voice: true
+    token: ${TELEGRAM_BOT_TOKEN}
+  web:
+    enabled: true
+    accept_voice: true

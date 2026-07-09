@@ -1,0 +1,31 @@
+# Action registry. New action = new entry here + one handler file. core/ untouched.
+# mode: chat (do now) | confirm (Ok/Cancel first) | link (sensitive -> link only).
+# Rule: sensitive: true always forces mode: link.
+
+actions:
+  set_language:                       # low risk -> execute immediately
+    description: "Сменить язык интерфейса"
+    mode: chat
+    params:
+      lang: { type: enum, values: [ru, en], required: true }
+    handler: handlers.actions.set_language
+
+  change_email:                       # reversible-but-important -> confirm
+    description: "Сменить email"
+    mode: confirm
+    confirm_prompt: "Поменять email на {new_email}?"
+    params:
+      new_email: { type: email, required: true }
+    handler: handlers.actions.change_email
+
+  change_password:                    # sensitive -> link only, never in chat
+    description: "Сменить пароль"
+    mode: link
+    link_url: "https://app.example.com/settings/security"
+    sensitive: true
+
+  change_phone:                       # sensitive personal data -> link only
+    description: "Сменить телефон"
+    mode: link
+    link_url: "https://app.example.com/settings/profile"
+    sensitive: true
