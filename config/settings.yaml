@@ -13,6 +13,27 @@ llm:
   # Ollama (http://localhost:11434), vLLM, LM Studio, llama.cpp, a proxy.
   api_base: ${LLM_API_BASE:-}
 
+  # --- Request knobs ---------------------------------------------------------
+  # Everything below is OPTIONAL and, left empty, is NOT sent to the provider.
+  # That empty default is deliberate: flagship reasoning models (gpt-5.x) reject
+  # the classic sampling params outright — "Unsupported value: 'temperature'
+  # does not support 0, only the default (1) is supported" — so a hard-coded
+  # temperature makes every call fail. Fill these in only for a model that
+  # accepts them (gpt-4.1, Ollama, vLLM, ...).
+  temperature: ${LLM_TEMPERATURE:-}
+  top_p: ${LLM_TOP_P:-}
+  max_tokens: ${LLM_MAX_TOKENS:-}
+  # Reasoning budget on models that reason: none | minimal | low | medium | high.
+  # "none" by default — onbo asks the model to classify a sentence, not to think
+  # for a minute. Raise it if classification quality matters more than latency.
+  reasoning_effort: ${LLM_REASONING_EFFORT:-none}
+  # Let LiteLLM silently strip params the chosen model doesn't support (e.g.
+  # reasoning_effort on a plain chat model) instead of failing the request.
+  drop_unsupported: ${LLM_DROP_UNSUPPORTED:-true}
+  # Escape hatch for anything else LiteLLM accepts; merged last, so it wins.
+  #   params: { seed: 42, presence_penalty: 0.1 }
+  params: {}
+
 embeddings:
   # Default: OpenAI text-embedding-3-large (3072-dim) — needs EMBED_API_KEY.
   # Other hosted options: gemini/gemini-embedding-001, voyage/voyage-3-large
