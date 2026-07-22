@@ -33,5 +33,15 @@ class RagHandler:
         # Skeleton: surface the top hit and cite sources. A fuller implementation
         # would ask the LLM to compose an answer grounded in the retrieved hits.
         top = hits[0]
+        message = top.text
+        if getattr(top, "video_url", None):
+            message += f"\n\nВидео-инструкция: {self._media_url(top.video_url)}"
         citations = [h.source for h in hits if h.source]
-        return ActionResult(status=ResultStatus.answer, message=top.text, citations=citations)
+        return ActionResult(status=ResultStatus.answer, message=message, citations=citations)
+
+    def _media_url(self, url: str) -> str:
+        """Prefix a site-relative /media path with media.base_url (for non-web channels)."""
+        base = self._settings.media.base_url
+        if base and url.startswith("/"):
+            return base.rstrip("/") + url
+        return url

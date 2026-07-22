@@ -66,6 +66,7 @@ class ResultStatus(str, Enum):
     needs_confirm = "needs_confirm"  # waiting for Ok/Cancel
     needs_input = "needs_input"      # missing required params
     link = "link"                    # sensitive -> link handed out
+    dry_run = "dry_run"             # validated, but no product backend configured
     failed = "failed"               # not supported / error
 
 

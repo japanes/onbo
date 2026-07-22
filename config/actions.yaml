@@ -8,7 +8,12 @@ actions:
     mode: chat
     params:
       lang: { type: enum, values: [ru, en], required: true }
-    handler: handlers.actions.set_language
+    # No handler file: the `api:` block below is executed generically.
+    api:
+      method: POST
+      path: "/api/users/{user_id}/language"
+      body: { language: "{lang}" }
+      success_message: "Язык интерфейса переключён на «{lang}»."
 
   change_email:                       # reversible-but-important -> confirm
     description: "Сменить email"
@@ -16,7 +21,12 @@ actions:
     confirm_prompt: "Поменять email на {new_email}?"
     params:
       new_email: { type: email, required: true }
-    handler: handlers.actions.change_email
+    handler: handlers.actions.change_email   # custom validation (email shape)
+    api:
+      method: POST
+      path: "/api/users/{user_id}/email"
+      body: { email: "{new_email}" }
+      success_message: "Email изменён на {new_email}."
 
   change_password:                    # sensitive -> link only, never in chat
     description: "Сменить пароль"
@@ -29,3 +39,56 @@ actions:
     mode: link
     link_url: "https://app.example.com/settings/profile"
     sensitive: true
+
+  # -- steps that make up the new_order pipeline below --------------------------
+  # Each is a normal action (usable on its own); the pipeline just chains them.
+  create_invoice_internal:
+    description: "Выставить накладную себе"
+    mode: chat
+    params:
+      order_id: { type: string, required: true }
+    api:
+      method: POST
+      path: "/api/orders/{order_id}/invoice"
+      body: { party: internal }
+      success_message: "Накладная себе по заказу {order_id} создана."
+
+  create_invoice_client:
+    description: "Выставить накладную клиенту"
+    mode: chat
+    params:
+      order_id: { type: string, required: true }
+    api:
+      method: POST
+      path: "/api/orders/{order_id}/invoice"
+      body: { party: client }
+      success_message: "Накладная клиенту по заказу {order_id} создана."
+
+  send_invoice_to_client:
+    description: "Отправить накладную клиенту"
+    mode: chat
+    params:
+      order_id: { type: string, required: true }
+    api:
+      method: POST
+      path: "/api/orders/{order_id}/send"
+      success_message: "Накладные по заказу {order_id} отправлены клиенту."
+
+# Pipelines: a batch of actions run on one command, with a single confirmation.
+# A step may only reference a chat/confirm action — never a sensitive (link) one.
+pipelines:
+  new_order:
+    description: "Оформить заказ: накладные себе и клиенту, отправка клиенту"
+    mode: confirm                       # chat | confirm (link is forbidden)
+    confirm_prompt: "Оформить заказ {order_id} и отправить накладные?"
+    roles: [accountant]                 # audience filter (welcome/about): бухгалтеры
+    params:
+      order_id: { type: string, required: true }
+    steps:
+      - action: create_invoice_internal
+        params: { order_id: "{order_id}" }
+      - action: create_invoice_client
+        params: { order_id: "{order_id}" }
+      - action: send_invoice_to_client
+        params: { order_id: "{order_id}" }
+    on_error: stop                      # stop | continue

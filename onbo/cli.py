@@ -40,6 +40,23 @@ def _build_parser() -> argparse.ArgumentParser:
     kb_sub.add_parser("reindex", help="Rebuild the Qdrant index from Postgres")
     kb_sub.add_parser("seed", help="Load config/seed_faq.yaml")
 
+    kb_import = kb_sub.add_parser(
+        "import", help="Import Q&A pairs from a seed_faq.yaml-shaped file"
+    )
+    kb_import.add_argument("path", help="Path to a YAML file with a top-level `qa:` list")
+
+    llm_export = sub.add_parser(
+        "llm-export", help="Write the public llm.json manifest for static hosting"
+    )
+    llm_export.add_argument("--out", default="llm.json", help="Output file (default: llm.json)")
+
+    users = sub.add_parser("users", help="User directory management")
+    users_sub = users.add_subparsers(dest="users_command", required=True)
+    users_sub.add_parser("seed", help="Upsert the demo users into Postgres")
+
+    demo = sub.add_parser("demo-backend", help="Run the bundled demo product backend")
+    demo.add_argument("--port", type=int, default=18100)
+
     return parser
 
 
@@ -83,13 +100,40 @@ async def _run(args: argparse.Namespace) -> None:
         elif args.kb_command == "seed":
             n = await admin.seed()
             print(f"Seeded {n} Q&A pairs.")
+        elif args.kb_command == "import":
+            n = await admin.seed(args.path)
+            print(f"Imported {n} Q&A pairs from {args.path}.")
         elif args.kb_command == "reindex":
             n = await admin.reindex()
             print(f"Reindexed {n} chunks.")
 
+    elif args.command == "llm-export":
+        import json
+
+        from .core.manifest import build_llm_manifest
+
+        manifest = build_llm_manifest(settings)
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, ensure_ascii=False, indent=2)
+        print(f"Wrote {args.out} ({len(manifest['qa'])} public Q&A, "
+              f"{len(manifest['actions'])} actions, {len(manifest['pipelines'])} pipelines).")
+
+    elif args.command == "users":
+        if args.users_command == "seed":
+            from .auth.profiles import seed_demo_users
+
+            n = seed_demo_users(settings)
+            print(f"Seeded {n} demo users." if n else "No DB available; nothing seeded.")
+
 
 def main() -> None:
     args = _build_parser().parse_args()
+    if args.command == "demo-backend":
+        # uvicorn.run manages its own event loop, so keep it out of asyncio.run.
+        from .demo.backend import run
+
+        run(args.port)
+        return
     asyncio.run(_run(args))
 
 

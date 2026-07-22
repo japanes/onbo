@@ -20,10 +20,15 @@ def aggregate(results: list[ActionResult]) -> Response:
     confirms = [r for r in results if r.status == ResultStatus.needs_confirm]
     links = [r for r in results if r.status == ResultStatus.link]
     inputs = [r for r in results if r.status == ResultStatus.needs_input]
+    dry = [r for r in results if r.status == ResultStatus.dry_run]
     failed = [r for r in results if r.status == ResultStatus.failed]
 
     for r in answers:
         lines.append(r.message)
+
+    if dry:
+        lines.append("Демо-режим (реальный бэкенд продукта не подключён):")
+        lines += [f"• {r.message}" for r in dry]
 
     if confirms:
         lines.append("Нужно подтверждение:")

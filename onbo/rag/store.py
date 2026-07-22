@@ -21,6 +21,7 @@ class Chunk(BaseModel):
     department: str | None = None
     roles: list[str] = Field(default_factory=list)
     collection: str | None = None
+    video_url: str | None = None  # optional walkthrough video for a Q&A pair
 
 
 class Hit(BaseModel):
@@ -30,6 +31,7 @@ class Hit(BaseModel):
     source: str | None = None
     score: float = 0.0
     is_qa: bool = False
+    video_url: str | None = None
 
 
 class AccessFilter(BaseModel):

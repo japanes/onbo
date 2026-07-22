@@ -5,6 +5,7 @@ derived search index rebuilt from this data. Requires the ``state``/``kb`` extra
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from functools import lru_cache
 
 from ..config import load_settings
@@ -33,6 +34,39 @@ def get_session():
     return Session(bind=get_engine(), future=True)
 
 
+@contextmanager
+def session_scope():
+    """Transactional session: commit on success, roll back on error, always close."""
+    session = get_session()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _load_all_models() -> None:
+    """Import every model module so ``Base.metadata`` knows all tables."""
+    from ..kb import models as _kb_models  # noqa: F401
+    from . import models as _state_models  # noqa: F401
+
+
 def init_db() -> None:
     """Create tables from the ORM metadata (dev convenience)."""
+    _load_all_models()
     Base.metadata.create_all(get_engine())  # type: ignore[union-attr]
+
+
+def db_available() -> bool:
+    """True if SQLAlchemy is installed and the Postgres server accepts a connection."""
+    try:
+        from sqlalchemy import text
+
+        with get_engine().connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False

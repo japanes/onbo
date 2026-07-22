@@ -31,6 +31,42 @@ class Indexer:
             self._store = QdrantStore(self._settings)
         return self._store
 
+    async def reset(self) -> None:
+        """Drop the Qdrant collection (used before a full reindex)."""
+        await self._get_store().reset()
+
+    async def upsert_chunks(self, chunks: list[Chunk]) -> int:
+        """Embed each chunk's text and upsert. Idempotent per ``chunk.id``."""
+        return await self._embed_and_upsert(chunks)
+
+    async def upsert_qa_chunk(self, question: str, chunk: Chunk) -> int:
+        """Upsert one Q&A point: embedded by the *question*, retrievable text = answer."""
+        vector = self._get_embedder().encode_one(question)
+        await self._get_store().upsert([chunk], [vector])
+        return 1
+
+    def build_doc_chunks(
+        self,
+        body: str,
+        base_id: str,
+        source: str,
+        collection: str,
+        department: str | None = None,
+        roles: list[str] | None = None,
+    ) -> list[Chunk]:
+        """Chunk a document body into stable-id Chunks (``{base_id}#{i}``)."""
+        return [
+            Chunk(
+                id=f"{base_id}#{i}",
+                text=piece,
+                source=source,
+                department=department,
+                roles=roles or [],
+                collection=collection,
+            )
+            for i, piece in enumerate(chunk_text(body))
+        ]
+
     async def index_documents(
         self,
         docs: list[RawDoc],
@@ -60,6 +96,7 @@ class Indexer:
         collection: str,
         department: str | None = None,
         roles: list[str] | None = None,
+        video_url: str | None = None,
     ) -> int:
         # Embed the question, but store the answer as the retrievable text.
         chunk = Chunk(
@@ -70,6 +107,7 @@ class Indexer:
             department=department,
             roles=roles or [],
             collection=collection,
+            video_url=video_url,
         )
         vector = self._get_embedder().encode_one(question)
         await self._get_store().upsert([chunk], [vector])

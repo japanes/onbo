@@ -1,0 +1,104 @@
+"""Config-driven HTTP action: honest dry-run + real request + templating."""
+from __future__ import annotations
+
+import httpx
+import pytest
+
+from onbo.config import ProductSettings, Settings
+from onbo.core.schemas import Profile, ResultStatus
+from onbo.handlers.actions import http_action
+from onbo.handlers.actions.registry import ActionSpec, ApiSpec
+
+
+def _spec(api: ApiSpec | None):
+    return ActionSpec(name="set_language", description="Сменить язык", api=api)
+
+
+PROFILE = Profile(user_id="acc1", department="accounting", roles=["accountant"])
+
+
+def _patch_settings(monkeypatch, base_url=""):
+    settings = Settings()
+    settings.product = ProductSettings(base_url=base_url, api_key="")
+    monkeypatch.setattr(http_action, "load_settings", lambda: settings)
+
+
+async def test_dry_run_when_no_api(monkeypatch):
+    _patch_settings(monkeypatch, base_url="")
+    res = await http_action.call_product_api(_spec(None), PROFILE, {})
+    assert res.status == ResultStatus.dry_run
+    assert "не задан вызов API" in res.message
+
+
+async def test_dry_run_when_no_backend(monkeypatch):
+    _patch_settings(monkeypatch, base_url="")
+    api = ApiSpec(method="POST", path="/api/users/{user_id}/language")
+    res = await http_action.call_product_api(_spec(api), PROFILE, {"lang": "en"})
+    assert res.status == ResultStatus.dry_run
+    assert "Вызвал бы POST /api/users/acc1/language" in res.message
+
+
+class _FakeResp:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+class _FakeClient:
+    """Records the outgoing request and returns a canned status code."""
+
+    calls = []
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def request(self, method, url, json=None, params=None, headers=None):
+        _FakeClient.calls.append(
+            {"method": method, "url": url, "json": json, "params": params, "headers": headers}
+        )
+        return _FakeResp(_FakeClient.status)
+
+
+async def test_real_call_success_templates_body_and_path(monkeypatch):
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    api = ApiSpec(
+        method="POST",
+        path="/api/users/{user_id}/language",
+        body={"language": "{lang}"},
+        success_message="Язык: {lang}.",
+    )
+    res = await http_action.call_product_api(_spec(api), PROFILE, {"lang": "en"})
+    assert res.status == ResultStatus.done
+    assert res.message == "Язык: en."
+    call = _FakeClient.calls[0]
+    assert call["method"] == "POST"
+    assert call["url"] == "http://backend:9000/api/users/acc1/language"
+    assert call["json"] == {"language": "en"}
+
+
+async def test_real_call_backend_error_is_failed(monkeypatch):
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    _FakeClient.calls = []
+    _FakeClient.status = 500
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    api = ApiSpec(method="POST", path="/api/users/{user_id}/language", body={"language": "{lang}"})
+    res = await http_action.call_product_api(_spec(api), PROFILE, {"lang": "en"})
+    assert res.status == ResultStatus.failed
+    assert "500" in res.message
+
+
+def test_render_leaves_unknown_placeholders_untouched():
+    # A missing key must not crash — the raw template survives.
+    assert http_action._render("{missing}", {"user_id": "u1"}) == "{missing}"
+    assert http_action._render("hi {user_id}", {"user_id": "u1"}) == "hi u1"
+    assert http_action._render(42, {}) == 42

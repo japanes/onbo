@@ -1,12 +1,18 @@
-# Local stack: app + postgres + qdrant + redis.
+# Local infrastructure: Qdrant + Postgres + Redis, plus containerized dev
+# targets so tests and the app run entirely in Docker (no host Python/venv).
+#
+# Common flows:
+#   docker compose up -d                       # infra only (default services)
+#   docker compose run --rm test               # hermetic pytest suite (lean image)
+#   docker compose --profile app up app        # full app against the infra
+#   docker compose --profile app up demo-backend  # built-in product demo API
 services:
-  app:
-    build: .
-    command: onbo serve web
-    env_file: .env
-    depends_on: [postgres, qdrant, redis]
+  qdrant:
+    image: qdrant/qdrant:latest
     ports:
-      - "8000:8000"
+      - "16333:6333"
+    volumes:
+      - qdrantdata:/qdrant/storage
 
   postgres:
     image: postgres:16
@@ -15,21 +21,63 @@ services:
       POSTGRES_PASSWORD: onbo
       POSTGRES_DB: onbo
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrantdata:/qdrant/storage
 
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      - "16379:6379"
+
+  # Hermetic pytest suite in a lean container (no Qdrant/Postgres/Redis/LLM
+  # needed — the tests use fakes + qdrant-client :memory:). Source is mounted so
+  # edits run without a rebuild. `--profile dev` keeps it off the default `up`.
+  test:
+    build:
+      context: .
+      target: test
+    profiles: ["dev"]
+    volumes:
+      - .:/app
+    command: ["pytest", "-q"]
+
+  app:
+    build:
+      context: .
+      target: base
+    profiles: ["app"]           # off by default; only runs on `--profile app`
+    command: onbo serve web
+    env_file:
+      - path: .env
+        required: false
+    environment:                # reach the sibling services and host Ollama by name
+      QDRANT_URL: http://qdrant:6333
+      POSTGRES_DSN: postgresql+psycopg://onbo:onbo@postgres:5432/onbo
+      REDIS_URL: redis://redis:6379/0
+      LLM_API_BASE: http://host.docker.internal:11434
+      STT_DEVICE: cpu           # no GPU inside the container
+      STT_COMPUTE: int8
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app                  # live edits without a rebuild (editable install)
+    depends_on: [postgres, qdrant, redis]
+    ports:
+      - "18000:18000"
+
+  # Built-in fake product backend (onbo demo-backend) so real HTTP actions have
+  # something to call end-to-end. Same image as `app`.
+  demo-backend:
+    build:
+      context: .
+      target: base
+    profiles: ["app"]
+    command: onbo demo-backend --port 18100
+    volumes:
+      - .:/app
+    ports:
+      - "18100:18100"
 
 volumes:
   pgdata:

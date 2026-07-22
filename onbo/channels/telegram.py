@@ -11,6 +11,7 @@ class TelegramChannel(Channel):
     async def start(self) -> None:
         try:
             from aiogram import Bot, Dispatcher, F
+            from aiogram.filters import CommandStart
             from aiogram.types import (
                 CallbackQuery,
                 InlineKeyboardButton,
@@ -21,6 +22,11 @@ class TelegramChannel(Channel):
             raise RuntimeError("aiogram не установлен (extra `telegram`).") from exc
 
         cfg = self._channel_config()
+        if not cfg or not cfg.token:
+            raise RuntimeError(
+                "Telegram не настроен: задайте channels.telegram.token "
+                "(обычно через переменную окружения TELEGRAM_BOT_TOKEN в settings.yaml)."
+            )
         bot = Bot(cfg.token)
         dp = Dispatcher()
 
@@ -43,11 +49,23 @@ class TelegramChannel(Channel):
                         reply_markup=confirm_keyboard(result.action),
                     )
 
+        async def greet_first_contact(message: "Message") -> None:
+            """Auto-welcome on the user's first message (no-op afterwards)."""
+            greeting = await self.pipeline.maybe_welcome(str(message.from_user.id))
+            if greeting is not None:
+                await render(message, greeting)
+
+        @dp.message(CommandStart())
+        async def on_start(message: "Message") -> None:
+            # /start always (re)introduces the assistant.
+            await render(message, await self.pipeline.welcome(str(message.from_user.id)))
+
         @dp.message(F.voice)
         async def on_voice(message: "Message") -> None:
             if not self.accepts_voice():
                 await message.answer("Голосовой ввод выключен. Напишите, пожалуйста, текстом.")
                 return
+            await greet_first_contact(message)
             file = await bot.get_file(message.voice.file_id)
             buffer = await bot.download_file(file.file_path)
             text = await self.transcribe(buffer.read(), locale=message.from_user.language_code)
@@ -55,6 +73,7 @@ class TelegramChannel(Channel):
 
         @dp.message(F.text)
         async def on_text(message: "Message") -> None:
+            await greet_first_contact(message)
             await render(message, await self.handle_text(str(message.from_user.id), message.text))
 
         @dp.callback_query(F.data.startswith(("ok:", "no:")))

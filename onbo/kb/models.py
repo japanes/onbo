@@ -46,6 +46,8 @@ try:
         collection_id: Mapped[int] = mapped_column(ForeignKey("kb_collection.id"))
         question: Mapped[str] = mapped_column(Text)  # embedded for retrieval
         answer: Mapped[str] = mapped_column(Text)
+        # Optional walkthrough video attached to this pair (served from /media).
+        video_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
         department: Mapped[str | None] = mapped_column(String(64), nullable=True)
         roles: Mapped[list | None] = mapped_column(JSON, nullable=True)
 

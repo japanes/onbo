@@ -10,7 +10,7 @@ import os
 
 from ..config import Settings
 from ..core.schemas import ActionMode, ActionResult, Profile, ResultStatus
-from .actions.registry import ActionSpec
+from .actions.registry import ActionSpec, spec_visible_to
 
 # Reserved public collection for the assistant's own docs (docs/self/*.md).
 # It carries no private content, so it is visible to every role.
@@ -30,8 +30,10 @@ class AboutHandler:
 
     async def answer(self, profile: Profile) -> ActionResult:
         lines = ["Я ассистент онбординга. Вот что умею прямо сейчас:", "", "Действия:"]
+        # Only actions/pipelines available to the caller (same rule as the KB).
         for spec in self._actions.values():
-            lines.append(f"• {spec.description or spec.name} — {_MODE_HINT[spec.mode]}")
+            if spec_visible_to(spec, profile):
+                lines.append(f"• {spec.description or spec.name} — {_MODE_HINT[spec.mode]}")
 
         stt = "включён" if self._settings.stt.enabled else "выключен"
         tts = "включена" if self._settings.tts.enabled else "выключена (голос только на вход)"

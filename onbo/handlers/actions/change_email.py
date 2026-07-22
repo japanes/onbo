@@ -1,8 +1,13 @@
-"""Reversible-but-important action: change email. mode: confirm (Ok/Cancel first)."""
+"""Reversible-but-important action: change email. mode: confirm (Ok/Cancel first).
+
+Custom validation (email shape) lives here; the actual backend call is the
+shared, config-driven one from http_action (driven by the `api:` block).
+"""
 from __future__ import annotations
 
-from ...core.schemas import ActionResult, Profile, ResultStatus
+from ...core.schemas import ActionResult, Profile
 from .base import ActionHandler
+from .http_action import call_product_api
 
 
 class ChangeEmail(ActionHandler):
@@ -14,13 +19,7 @@ class ChangeEmail(ActionHandler):
         return entities
 
     async def execute(self, profile: Profile, entities: dict) -> ActionResult:
-        new_email = entities.get("new_email")
-        # TODO: call the target product's API to change the email for this user.
-        return ActionResult(
-            status=ResultStatus.done,
-            action="change_email",
-            message=f"Email изменён на {new_email}.",
-        )
+        return await call_product_api(self.spec, profile, entities)
 
 
 handler = ChangeEmail()

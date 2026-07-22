@@ -1,23 +1,71 @@
-# onbo runtime configuration. ${VARS} are expanded from the environment.
+# onbo runtime configuration.
+# ${VAR} and ${VAR:-default} are expanded from the environment (a missing var
+# falls back to the default), so a bare `docker compose up` + host run needs no .env.
 
 llm:
-  model: gpt-4o-mini          # any LiteLLM-supported model (local or cloud)
-  api_key: ${OPENAI_API_KEY}
-  api_base: null
+  # LiteLLM model string. Defaults to a LOCAL model on your GPU via Ollama.
+  # For a cloud vendor instead: set LLM_MODEL=gpt-4o-mini and LLM_API_KEY=sk-...
+  model: ${LLM_MODEL:-ollama_chat/llama3.2:3b}
+  api_key: ${LLM_API_KEY:-}
+  api_base: ${LLM_API_BASE:-http://localhost:11434}
 
-embedding:
-  model: BAAI/bge-m3          # open-source embeddings (bge-m3 / e5)
+embeddings:
+  model: ${EMBED_MODEL:-intfloat/multilingual-e5-large}   # open-source multilingual embeddings (fastembed), 1024-dim
 
 qdrant:
-  url: http://localhost:6333
-  collection: onbo
+  url: ${QDRANT_URL:-http://localhost:16333}
+  collection: ${QDRANT_COLLECTION:-onbo}
 
-postgres_dsn: ${POSTGRES_DSN}
-redis_url: ${REDIS_URL}
+media:
+  # Walkthrough videos attached to Q&A pairs (video_url). Served at /media by the
+  # web channel. Set base_url to an absolute host (e.g. https://app.example.com)
+  # so links work in Telegram, where a site-relative /media/... path is useless.
+  dir: ${MEDIA_DIR:-media}
+  base_url: ${MEDIA_BASE_URL:-}
+
+welcome:
+  # Proactive first-contact digest: on a user's first message (or /welcome) the
+  # assistant introduces the features available to their role/department.
+  enabled: ${WELCOME_ENABLED:-true}
+  video: {}            # department|role -> starter video url, e.g. accounting: /media/welcome/accounting.mp4
+  text_overrides: {}   # department|role -> hand-written text instead of the generated digest
+
+features:
+  # Master on/off switches per subsystem. Turn one off and its web mount and/or
+  # routing path disappears. Example — a minimal "only llm.json" deployment:
+  #   chat: false, admin: false, media: false, welcome: false, actions: false,
+  #   rag: false, llm_manifest: true.
+  chat: ${FEATURE_CHAT:-true}                  # /chat, /voice, /confirm
+  admin: ${FEATURE_ADMIN:-true}                # /admin KB panel + API
+  media: ${FEATURE_MEDIA:-true}                # /media walkthrough videos
+  llm_manifest: ${FEATURE_LLM_MANIFEST:-true}  # /llm.json for external agents
+  welcome: ${FEATURE_WELCOME:-true}            # proactive /welcome + /start
+  actions: ${FEATURE_ACTIONS:-true}            # classifier routes profile actions
+  rag: ${FEATURE_RAG:-true}                    # classifier answers from the KB
+
+postgres_dsn: ${POSTGRES_DSN:-postgresql+psycopg://onbo:onbo@localhost:15432/onbo}
+redis_url: ${REDIS_URL:-redis://localhost:16379/0}
+
+product:
+  # Human-facing identity of the target product, exposed in llm.json so external
+  # LLM agents that read the site know what they're talking to.
+  name: ${PRODUCT_NAME:-}
+  description: ${PRODUCT_DESCRIPTION:-}
+  # The target software's backend that profile actions call over HTTP.
+  # Empty base_url = demo/dry-run (validate + report, no real request).
+  # Point it at the bundled demo backend to see actions execute end-to-end:
+  #   onbo demo-backend            # runs on :18100
+  #   PRODUCT_API_BASE=http://localhost:18100 onbo serve web
+  base_url: ${PRODUCT_API_BASE:-}
+  api_key: ${PRODUCT_API_KEY:-}
+  auth_header: ${PRODUCT_AUTH_HEADER:-Authorization}
+  auth_scheme: ${PRODUCT_AUTH_SCHEME:-Bearer}
 
 stt:
-  enabled: true               # global voice-input switch (faster-whisper)
-  model: base
+  enabled: ${STT_ENABLED:-true}        # global voice-input switch (faster-whisper)
+  model: ${STT_MODEL:-large-v3}        # base | small | medium | large-v3 (smaller = less VRAM/download)
+  device: ${STT_DEVICE:-cuda}          # cuda = local GPU; auto-falls back to cpu if CUDA libs are missing
+  compute_type: ${STT_COMPUTE:-float16}
 
 tts:
   enabled: false              # answer voice-over — deferred (Piper); input only for now
@@ -25,9 +73,10 @@ tts:
 
 channels:
   telegram:
-    enabled: true
+    enabled: ${TELEGRAM_ENABLED:-false}
     accept_voice: true
-    token: ${TELEGRAM_BOT_TOKEN}
+    token: ${TELEGRAM_BOT_TOKEN:-}
   web:
     enabled: true
     accept_voice: true
+    port: ${WEB_PORT:-18000}

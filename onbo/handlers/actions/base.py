@@ -13,6 +13,9 @@ from ...core.schemas import ActionResult, Profile
 
 
 class ActionHandler(ABC):
+    # Populated by the registry with the action's ActionSpec (api block, messages).
+    spec = None
+
     async def validate(self, entities: dict) -> dict:
         """Check / normalise / slot-fill entities. Return the entities to execute with.
 
