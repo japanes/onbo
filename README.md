@@ -10,7 +10,8 @@ Open-source onboarding assistant **for any software**. It accepts user requests 
 
 **Step-by-step guides:**
 [1 — install & configure](docs/HOWTO-1-setup.md) ·
-[2 — knowledge base, commands, chat & voice](docs/HOWTO-2-kb-and-chat.md)
+[2 — knowledge base, commands, chat & voice](docs/HOWTO-2-kb-and-chat.md) ·
+[3 — embedding the chat in your product](docs/HOWTO-3-embed-chat.md)
 
 ---
 
