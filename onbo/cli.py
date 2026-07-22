@@ -5,7 +5,7 @@ import argparse
 import asyncio
 
 from . import __version__
-from .config import load_settings
+from .config import ConfigError, check_env_keys, load_settings
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -128,6 +128,10 @@ async def _run(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = _build_parser().parse_args()
+    try:
+        check_env_keys()
+    except ConfigError as exc:
+        raise SystemExit(f"onbo: {exc}") from None
     if args.command == "demo-backend":
         # uvicorn.run manages its own event loop, so keep it out of asyncio.run.
         from .demo.backend import run

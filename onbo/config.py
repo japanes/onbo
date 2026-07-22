@@ -200,6 +200,27 @@ class Settings(BaseModel):
     channels: dict[str, ChannelSettings] = Field(default_factory=dict)
 
 
+class ConfigError(RuntimeError):
+    """Configuration that cannot work. Reported as one line, without a traceback."""
+
+
+# The example values .env.example ships. Copied over verbatim they reach the vendor
+# as if they were real keys and come back as a 401 deep inside a library traceback,
+# so catch them before the first request instead.
+_PLACEHOLDER_KEYS = frozenset({"sk-...", "sk-proj-...", "sk-ant-...", "AIza...", "pa-..."})
+
+
+def check_env_keys() -> None:
+    """Raise if an API key in the environment is still a placeholder."""
+    for name, value in sorted(os.environ.items()):
+        if name.endswith("_API_KEY") and value.strip() in _PLACEHOLDER_KEYS:
+            raise ConfigError(
+                f"{name}={value.strip()} is the example value from .env.example, not a key. "
+                f"Put a real key in .env, or drop {name} and switch to models that need none: "
+                "EMBED_MODEL=intfloat/multilingual-e5-large plus an Ollama LLM_MODEL."
+            )
+
+
 def config_dir() -> Path:
     """Directory that holds settings.yaml / actions.yaml / seed_faq.yaml."""
     return Path(os.environ.get("ONBO_CONFIG_DIR", "config")).expanduser()
