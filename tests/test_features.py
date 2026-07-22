@@ -15,13 +15,13 @@ from onbo.handlers.actions.registry import ActionSpec, ParamSpec
 
 
 class _NullPipeline:
-    async def handle(self, env):
+    async def handle(self, env, profile=None):
         return Response(text="", results=[])
 
-    async def maybe_welcome(self, user_id):
+    async def maybe_welcome(self, user_id, profile=None):
         return None
 
-    async def welcome(self, user_id):
+    async def welcome(self, user_id, profile=None):
         return Response(text="hi", results=[])
 
 

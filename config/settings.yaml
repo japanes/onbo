@@ -43,6 +43,20 @@ welcome:
   video: {}            # department|role -> starter video url, e.g. accounting: /media/welcome/accounting.mp4
   text_overrides: {}   # department|role -> hand-written text instead of the generated digest
 
+auth:
+  # Who is asking. By default the caller passes user_id and onbo looks the person
+  # up in its users table — fine when a backend of yours is the caller and the
+  # browser never sees the id.
+  # For a widget embedded in your site, set jwt_secret instead: your backend signs
+  # a short-lived token with the user id, department and roles inside, and onbo
+  # trusts the claims because the signature cannot be forged. Nothing to
+  # synchronise, no copy of your user directory here.
+  jwt_secret: ${ONBO_JWT_SECRET:-}
+  jwt_leeway: ${ONBO_JWT_LEEWAY:-30}       # seconds of clock skew tolerated on exp
+  # Set false in production with a public endpoint: then a signed token is the
+  # only way in, and a plain user_id in the body is refused.
+  allow_user_id: ${ONBO_ALLOW_USER_ID:-true}
+
 features:
   # Master on/off switches per subsystem. Turn one off and its web mount and/or
   # routing path disappears. Example — a minimal "only llm.json" deployment:
@@ -93,3 +107,8 @@ channels:
     enabled: true
     accept_voice: true
     port: ${WEB_PORT:-18000}
+    # Origins allowed to call onbo straight from a browser (the embedded widget).
+    # Comma-separated, exact scheme+host+port: https://app.example.com
+    # Leave empty when your own backend proxies the requests — then no browser
+    # ever talks to onbo directly and CORS is not involved at all.
+    cors_origins: ${ONBO_CORS_ORIGINS:-}

@@ -285,6 +285,29 @@ welcome:
     support: "Hi! Start with the «Handling tickets» section."
 ```
 
+The digest is **generated from what actually exists**, not written by hand: the
+commands in `config/actions.yaml` that this person is allowed to run, plus the
+knowledge-base collections they can see and a few sample questions from them. The
+model only smooths the wording; it is not asked to invent features.
+
+So if the greeting mentions commands you do not have, they are in
+`config/actions.yaml`. The file ships with demo entries — clear them out when you
+start on your own product:
+
+```yaml
+actions: {}
+pipelines: {}
+```
+
+```bash
+docker compose restart app
+# the digest is shown once per person, so clear the mark to see it again:
+docker compose exec postgres psql -U onbo -d onbo -c "UPDATE app_user SET welcomed_at = NULL;"
+```
+
+`text_overrides` replaces the generated text entirely for a department or role,
+and `features.welcome: false` switches the whole thing off.
+
 Check it:
 
 ```bash

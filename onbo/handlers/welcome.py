@@ -140,7 +140,7 @@ class WelcomeHandler:
             {"role": "user", "content": plain},
         ]
         try:
-            text = (await self._llm.complete(messages, temperature=0.3)).strip()
+            text = (await self._llm.complete(messages)).strip()
         except Exception:  # litellm missing or model unreachable -> template
             return plain
         return text or plain

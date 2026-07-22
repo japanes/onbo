@@ -18,7 +18,7 @@ from . import aggregator
 from .classifier import Classifier
 from .llm import LLM
 from .router import Router
-from .schemas import ActionResult, Envelope, Response, ResultStatus
+from .schemas import ActionResult, Envelope, Profile, Response, ResultStatus
 
 
 class Pipeline:
@@ -45,33 +45,46 @@ class Pipeline:
         )
         self.router = Router(self.specs, self.registry, self.rag, self.about, self.session)
 
-    async def handle(self, env: Envelope) -> Response:
-        """Full path: auth -> classify -> route each action -> aggregate."""
-        profile = await resolve_profile(env.user_id, self.settings)
+    async def handle(self, env: Envelope, profile: Profile | None = None) -> Response:
+        """Full path: auth -> classify -> route each action -> aggregate.
+
+        ``profile`` is passed in when the channel already authenticated the caller
+        (a signed token carrying department and roles); otherwise it is looked up
+        in the users table. Either way it is the only source of the access filter.
+        """
+        profile = profile or await resolve_profile(env.user_id, self.settings)
         classification = await self.classifier.classify(env, profile)
         results = [await self.router.route(action, profile) for action in classification.actions]
         return aggregator.aggregate(results)
 
-    async def welcome(self, user_id: str) -> Response:
+    async def welcome(self, user_id: str, profile: Profile | None = None) -> Response:
         """Proactive first-contact digest, tailored to the user's access.
 
         Explicit trigger (/welcome, /start): always builds the digest and marks
         the user as greeted so the auto-welcome doesn't fire again.
         """
-        profile = await resolve_profile(user_id, self.settings)
+        profile = profile or await resolve_profile(user_id, self.settings)
         result = await self.welcome_handler.answer(profile)
         await welcome_state.mark_welcomed(user_id, self.settings, self.session)
         return aggregator.aggregate([result])
 
-    async def maybe_welcome(self, user_id: str) -> Response | None:
+    async def maybe_welcome(
+        self, user_id: str, profile: Profile | None = None
+    ) -> Response | None:
         """Auto-welcome on first contact: only if enabled and not greeted yet."""
         if not (self.settings.features.welcome and self.settings.welcome.enabled):
             return None
         if await welcome_state.is_welcomed(user_id, self.settings, self.session):
             return None
-        return await self.welcome(user_id)
+        return await self.welcome(user_id, profile)
 
-    async def confirm(self, user_id: str, action_name: str, approved: bool) -> ActionResult:
+    async def confirm(
+        self,
+        user_id: str,
+        action_name: str,
+        approved: bool,
+        profile: Profile | None = None,
+    ) -> ActionResult:
         """Resolve a parked confirm action once the user presses Ok/Cancel."""
         entities = await self.session.pop(user_id, action_name)
         if entities is None:
@@ -82,7 +95,7 @@ class Pipeline:
             )
         if not approved:
             return ActionResult(status=ResultStatus.done, action=action_name, message="Отменено.")
-        profile = await resolve_profile(user_id, self.settings)
+        profile = profile or await resolve_profile(user_id, self.settings)
         handler = self.registry.get(action_name)
         if handler is None:
             return ActionResult(status=ResultStatus.failed, action=action_name, message="Обработчик не найден.")

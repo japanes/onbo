@@ -87,6 +87,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "path", help="YAML file with a top-level `users:` list (see config/users.example.yaml)"
     )
 
+    token = sub.add_parser(
+        "token", help="Sign an identity token by hand (to try the embedded widget)"
+    )
+    token.add_argument("user_id")
+    token.add_argument("--department", default=None)
+    token.add_argument("--roles", nargs="*", default=None)
+    token.add_argument("--ttl", type=int, default=300, help="Lifetime in seconds (default: 300)")
+
     demo = sub.add_parser("demo-backend", help="Run the bundled demo product backend")
     demo.add_argument("--port", type=int, default=18100)
 
@@ -184,6 +192,16 @@ async def _run(args: argparse.Namespace) -> None:
             json.dump(manifest, handle, ensure_ascii=False, indent=2)
         print(f"Wrote {args.out} ({len(manifest['qa'])} public Q&A, "
               f"{len(manifest['actions'])} actions, {len(manifest['pipelines'])} pipelines).")
+
+    elif args.command == "token":
+        from .auth.tokens import sign_token
+
+        secret = settings.auth.jwt_secret
+        if not secret:
+            raise SystemExit(
+                "onbo: auth.jwt_secret is not set — put ONBO_JWT_SECRET in .env first."
+            )
+        print(sign_token(args.user_id, secret, args.department, args.roles, args.ttl))
 
     elif args.command == "users":
         from .auth.profiles import import_users, upsert_users

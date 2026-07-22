@@ -19,18 +19,41 @@ class LLM:
     def __init__(self, settings: Settings) -> None:
         self._s = settings
 
-    async def complete(self, messages: list[dict], temperature: float = 0.2) -> str:
+    def _request_params(self, overrides: dict) -> dict:
+        """Merge configured knobs with per-call overrides, dropping the unset ones.
+
+        Anything left as ``None`` never reaches the provider. That is the whole
+        point: a flagship reasoning model errors out on ``temperature`` at all,
+        so "not configured" has to mean "absent from the request", not "0.0".
+        """
+        cfg = self._s.llm
+        params = {
+            "temperature": cfg.temperature,
+            "top_p": cfg.top_p,
+            "max_tokens": cfg.max_tokens,
+            "reasoning_effort": cfg.reasoning_effort,
+            **cfg.params,
+            **overrides,
+        }
+        return {name: value for name, value in params.items() if value is not None}
+
+    async def complete(self, messages: list[dict], **overrides) -> str:
+        """One completion. Keyword overrides beat settings.yaml for this call only."""
         try:
             import litellm
         except ImportError as exc:  # pragma: no cover - depends on extras
             raise LLMUnavailable("litellm is not installed (pip install 'onbo[llm]')") from exc
 
+        # Ask LiteLLM to strip params the target model rejects (reasoning_effort
+        # on a plain chat model, say) rather than raising.
+        litellm.drop_params = self._s.llm.drop_unsupported
+
         resp = await litellm.acompletion(
             model=self._s.llm.model,
             messages=messages,
-            temperature=temperature,
             api_key=self._s.llm.api_key,
             api_base=self._s.llm.api_base,
+            **self._request_params(overrides),
         )
         return resp["choices"][0]["message"]["content"] or ""
 
@@ -45,7 +68,9 @@ class LLM:
                 + schema_json
             ),
         }
-        raw = await self.complete([system, *messages], temperature=0.0)
+        # No temperature override here: whether determinism is even expressible
+        # is a property of the configured model, so it belongs in settings.yaml.
+        raw = await self.complete([system, *messages])
         return schema.model_validate_json(_extract_json(raw))
 
 

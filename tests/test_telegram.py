@@ -124,16 +124,16 @@ class FakePipeline:
         self._response = response or Response(text="hi", results=[])
         self.confirm_calls = []
 
-    async def handle(self, env):
+    async def handle(self, env, profile=None):
         return self._response
 
-    async def maybe_welcome(self, user_id):
+    async def maybe_welcome(self, user_id, profile=None):
         return None  # already greeted: these tests focus on routing, not the welcome
 
-    async def welcome(self, user_id):
+    async def welcome(self, user_id, profile=None):
         return Response(text="привет", results=[])
 
-    async def confirm(self, user_id, action, approved):
+    async def confirm(self, user_id, action, approved, profile=None):
         self.confirm_calls.append((user_id, action, approved))
         msg = "готово" if approved else "Отменено"
         return ActionResult(status=ResultStatus.done, action=action, message=msg)

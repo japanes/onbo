@@ -15,7 +15,7 @@ from onbo.core.schemas import Response
 
 
 class FakePipeline:
-    async def handle(self, env):
+    async def handle(self, env, profile=None):
         # Echo the routed text so the test can assert the transcript reached here.
         return Response(text=f"ROUTED:{env.text}")
 

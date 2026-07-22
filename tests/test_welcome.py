@@ -169,14 +169,14 @@ class _WebPipeline:
     def __init__(self) -> None:
         self._welcomed: set[str] = set()
 
-    async def handle(self, env):
+    async def handle(self, env, profile=None):
         return Response(text=f"ответ:{env.text}", results=[])
 
-    async def welcome(self, user_id: str) -> Response:
+    async def welcome(self, user_id: str, profile=None) -> Response:
         self._welcomed.add(user_id)
         return Response(text="ЗДРАВСТВУЙ", results=[])
 
-    async def maybe_welcome(self, user_id: str):
+    async def maybe_welcome(self, user_id: str, profile=None):
         if user_id in self._welcomed:
             return None
         return await self.welcome(user_id)

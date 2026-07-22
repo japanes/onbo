@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 
 from ..config import Settings
 from ..core.pipeline import Pipeline
-from ..core.schemas import Envelope, Response
+from ..core.schemas import Envelope, Profile, Response
 
 
 class Channel(ABC):
@@ -45,6 +45,12 @@ class Channel(ABC):
     def build_envelope(self, user_id: str, text: str, locale: str = "ru") -> Envelope:
         return Envelope(user_id=user_id, channel=self.name, text=text, locale=locale)
 
-    async def handle_text(self, user_id: str, text: str, locale: str = "ru") -> Response:
+    async def handle_text(
+        self,
+        user_id: str,
+        text: str,
+        locale: str = "ru",
+        profile: Profile | None = None,
+    ) -> Response:
         env = self.build_envelope(user_id, text, locale)
-        return await self.pipeline.handle(env)
+        return await self.pipeline.handle(env, profile)

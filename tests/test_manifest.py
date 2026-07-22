@@ -121,7 +121,7 @@ def test_manifest_pipelines_present_without_steps():
 
 
 class _NullPipeline:
-    async def handle(self, env):
+    async def handle(self, env, profile=None):
         return Response(text="", results=[])
 
 

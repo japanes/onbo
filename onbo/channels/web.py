@@ -25,6 +25,7 @@ class WebChannel(Channel):
 
         app = FastAPI(title="onbo")
         features = self.settings.features
+        self._install_cors(app)
 
         # Serve walkthrough videos (Q&A video_url) from the media directory.
         if features.media:
@@ -51,19 +52,26 @@ class WebChannel(Channel):
 
         if features.welcome:
             @app.post("/welcome")
-            async def welcome(user_id: str = Body(..., embed=True)):
+            async def welcome(user_id: str = Body(None), token: str = Body(None)):
                 # Explicit trigger; 404 when the digest itself is switched off.
                 if not self.settings.welcome.enabled:
                     raise HTTPException(status_code=404, detail="Проактивное приветствие выключено.")
-                response = await self.pipeline.welcome(user_id)
+                user_id, profile = self._identify(user_id, token)
+                response = await self.pipeline.welcome(user_id, profile)
                 return {"text": response.text, "results": [r.model_dump() for r in response.results]}
 
         if features.chat:
             @app.post("/chat")
-            async def chat(user_id: str = Body(...), text: str = Body(...), locale: str = Body("ru")):
+            async def chat(
+                text: str = Body(...),
+                user_id: str = Body(None),
+                token: str = Body(None),
+                locale: str = Body("ru"),
+            ):
+                user_id, profile = self._identify(user_id, token)
                 # Prepend the one-time welcome on the user's first message.
-                greeting = await self.pipeline.maybe_welcome(user_id)
-                response = await self.handle_text(user_id, text, locale)
+                greeting = await self.pipeline.maybe_welcome(user_id, profile)
+                response = await self.handle_text(user_id, text, locale, profile)
                 results = (greeting.results if greeting else []) + response.results
                 reply = f"{greeting.text}\n\n{response.text}" if greeting else response.text
                 return {
@@ -73,19 +81,89 @@ class WebChannel(Channel):
                 }
 
             @app.post("/voice")
-            async def voice(user_id: str = Body(...), audio: UploadFile = None, locale: str = Body("ru")):
+            async def voice(
+                audio: UploadFile = None,
+                user_id: str = Body(None),
+                token: str = Body(None),
+                locale: str = Body("ru"),
+            ):
                 if not self.accepts_voice():
                     return {"text": "Голосовой ввод выключен. Напишите, пожалуйста, текстом."}
+                user_id, profile = self._identify(user_id, token)
                 text = await self.transcribe(await audio.read(), locale=locale)
-                response = await self.handle_text(user_id, text, locale)
-                return {"text": response.text, "transcript": text}
+                response = await self.handle_text(user_id, text, locale, profile)
+                return {
+                    "text": response.text,
+                    "transcript": text,
+                    "results": [r.model_dump() for r in response.results],
+                }
 
             @app.post("/confirm")
-            async def confirm(user_id: str = Body(...), action: str = Body(...), approved: bool = Body(...)):
-                result = await self.pipeline.confirm(user_id, action, approved)
+            async def confirm(
+                action: str = Body(...),
+                approved: bool = Body(...),
+                user_id: str = Body(None),
+                token: str = Body(None),
+            ):
+                user_id, profile = self._identify(user_id, token)
+                result = await self.pipeline.confirm(user_id, action, approved, profile)
                 return result.model_dump()
 
         return app
+
+    # -- who is asking --------------------------------------------------------
+
+    def _identify(self, user_id, token):
+        """Turn the request body into (user_id, profile-or-None).
+
+        A signed token wins: it carries the department and roles, so no directory
+        lookup happens and nothing about access comes from the caller unsigned. A
+        bare ``user_id`` is the local/proxy mode — the profile is then looked up
+        in onbo's own users table further down the pipeline.
+        """
+        from fastapi import HTTPException
+
+        from ..auth.tokens import TokenError, profile_from_token
+
+        if token:
+            try:
+                profile = profile_from_token(token, self.settings)
+            except TokenError as exc:
+                raise HTTPException(status_code=401, detail=str(exc)) from exc
+            return profile.user_id, profile
+        if not self.settings.auth.allow_user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="Нужен подписанный токен (auth.allow_user_id выключен).",
+            )
+        if not user_id:
+            raise HTTPException(status_code=422, detail="Нужен user_id или token.")
+        return user_id, None
+
+    def _install_cors(self, app) -> None:
+        """Allow the browser widget to call this API directly, if configured.
+
+        Only meaningful in token mode: with `*` and no tokens, any page on the
+        internet could ask questions as any employee, so that combination is
+        refused rather than quietly allowed.
+        """
+        cfg = self._channel_config()
+        origins = list(cfg.cors_origins) if cfg else []
+        if not origins:
+            return
+        if "*" in origins and not self.settings.auth.jwt_secret:
+            raise RuntimeError(
+                "cors_origins: '*' без auth.jwt_secret — так чат сможет дёргать любой сайт. "
+                "Укажите конкретные адреса или включите вход по токену."
+            )
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["POST", "GET"],
+            allow_headers=["Content-Type", "Authorization"],
+        )
 
     async def start(self) -> None:
         import uvicorn

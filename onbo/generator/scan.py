@@ -58,8 +58,7 @@ async def scan_project(project_path: str, settings: Settings | None = None) -> s
             [
                 {"role": "system", "content": _PROMPT},
                 {"role": "user", "content": excerpts},
-            ],
-            temperature=0.0,
+            ]
         )
     except LLMUnavailable as exc:
         return f"# LLM unavailable: {exc}\nactions: {{}}\n"
