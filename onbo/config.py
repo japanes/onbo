@@ -34,10 +34,10 @@ def _expand_env(text: str) -> str:
 
 
 class LLMSettings(BaseModel):
-    # Model string is resolved by LiteLLM. Point it at a local GPU server
-    # (e.g. "ollama_chat/llama3.2:3b" + api_base http://localhost:11434) or at an
-    # external vendor (e.g. "gpt-4o-mini" with api_key). Empty strings -> None.
-    model: str = "gpt-4o-mini"
+    # Model string is resolved by LiteLLM. Defaults to OpenAI (api_key needed);
+    # point it at a local GPU server instead with e.g. "ollama_chat/qwen2.5:7b"
+    # + api_base http://localhost:11434. Empty strings -> None.
+    model: str = "gpt-5.6-terra"
     api_key: str | None = None
     api_base: str | None = None
 
@@ -81,7 +81,7 @@ class EmbeddingSettings(BaseModel):
     None, so LiteLLM can pick up OPENAI_API_KEY & co from the environment.
     """
 
-    model: str = "BAAI/bge-m3"
+    model: str = "text-embedding-3-large"
     provider: str = "auto"
     api_key: str | None = None
     api_base: str | None = None

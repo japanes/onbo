@@ -16,13 +16,15 @@ to your product's backend.
 - Docker + Docker Compose (the whole application lives in containers — nothing
   is installed into your system);
 - ~6 GB of disk: images, embedding weights (~1 GB) and the speech model;
-- a model: either local via Ollama, or an API key from a hosted vendor.
+- an OpenAI API key — the default setup uses it for both the chat model and the
+  embeddings. You can swap in another vendor or fully local models instead
+  (sections 3 and 4).
 
 ## 2. Three commands to a running stack
 
 ```bash
 git clone git@github.com:japanes/onbo.git && cd onbo
-cp .env.example .env          # pick a model block, see section 3
+cp .env.example .env          # put your key in OPENAI_API_KEY
 docker compose up -d
 ```
 
@@ -59,20 +61,56 @@ The first start is slower: images and model weights are being downloaded. The
 weights live in a separate `modelcache` volume and survive rebuilds, so the
 second start is fast.
 
+> `bootstrap` indexes the starter FAQ, which means computing embeddings. With
+> the default hosted embedding model that needs a valid key — without one it
+> fails with `AuthenticationError`. Either put the key in `.env`, or switch to a
+> local embedding model (section 4).
+
 ## 3. Connecting a model
 
 The model is what the classifier uses: it turns "change my email and show me how
-to issue a refund" into a list of actions. **Without a reachable model onbo does
-not break** — it falls back to keyword heuristics, so simple commands still work
-but free-form phrasing does not. Configure a model first.
+to issue a refund" into a list of actions. The default is OpenAI
+`gpt-5.6-terra`, so `OPENAI_API_KEY=sk-...` in `.env` is all it takes.
+**Without a reachable model onbo does not break** — it falls back to keyword
+heuristics, so simple commands still work but free-form phrasing does not.
 
-It is one block in `.env`. There is a single rule:
+Switching to another model is one block in `.env`. There is a single rule:
 
 > Set `LLM_API_BASE` **only** for a server of your own (Ollama, vLLM, …). For
 > hosted vendors (OpenAI, Anthropic, Gemini) leave it empty, otherwise requests
 > go to the wrong host.
 
+### Flagship hosted models
+
+The key always goes into the same `LLM_API_KEY` (or the vendor's own env var,
+e.g. `OPENAI_API_KEY`); the provider is selected by the model prefix. Do not set
+`LLM_API_BASE`.
+
+```ini
+# OpenAI — the default; a bare OPENAI_API_KEY=sk-... in .env is enough
+LLM_MODEL=gpt-5.6-terra
+LLM_API_KEY=sk-...
+```
+
+```ini
+# Anthropic
+LLM_MODEL=anthropic/claude-sonnet-4-5
+LLM_API_KEY=sk-ant-...
+```
+
+```ini
+# Google Gemini
+LLM_MODEL=gemini/gemini-2.0-flash
+LLM_API_KEY=AIza...
+```
+
+LiteLLM sits underneath, so any model string from its catalogue works (Azure
+OpenAI, Bedrock, Mistral and so on — those have their own environment
+variables; add them to `.env` and they reach the container as-is).
+
 ### Open-weight models on your own hardware
+
+Nothing leaves your network, and there is no per-request bill.
 
 **Option A — Ollama on the host (uses your GPU, recommended):**
 
@@ -127,33 +165,6 @@ parsing quality is noticeably worse. The practical minimum is 7–8B
 (`qwen2.5:7b`, `llama3.1:8b`); instruct models that follow formats well are
 better still.
 
-### Flagship hosted models
-
-The key always goes into the same `LLM_API_KEY`; the provider is selected by the
-model prefix. Do not set `LLM_API_BASE`.
-
-```ini
-# OpenAI
-LLM_MODEL=gpt-4o-mini
-LLM_API_KEY=sk-...
-```
-
-```ini
-# Anthropic
-LLM_MODEL=anthropic/claude-sonnet-4-5
-LLM_API_KEY=sk-ant-...
-```
-
-```ini
-# Google Gemini
-LLM_MODEL=gemini/gemini-2.0-flash
-LLM_API_KEY=AIza...
-```
-
-LiteLLM sits underneath, so any model string from its catalogue works (Azure
-OpenAI, Bedrock, Mistral and so on — those have their own environment
-variables; add them to `.env` and they reach the container as-is).
-
 After editing `.env`:
 
 ```bash
@@ -180,17 +191,10 @@ An embedding model turns text into a vector; search compares vectors. It is a
 separate choice from the chat model — the two do not have to come from the same
 vendor.
 
-**Open-source, on your own machine (the default).** Runs through `fastembed`:
-no key, no external service, company content never leaves the machine. The
-default is `intfloat/multilingual-e5-large` (multilingual, 1024 dimensions). A
-lighter one:
-
-```ini
-EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2   # 384d
-```
-
-**A flagship hosted model.** Set the model plus a key — the vendor is picked
-from the model string, exactly like the chat model:
+**A flagship hosted model (the default).** Out of the box this is OpenAI
+`text-embedding-3-large` (3072 dimensions), covered by the same
+`OPENAI_API_KEY`. For another vendor, set the model plus a key — the vendor is
+picked from the model string, exactly like the chat model:
 
 | Vendor | `EMBED_MODEL` | Vector size |
 |---|---|---|
@@ -206,6 +210,16 @@ EMBED_API_KEY=sk-...
 
 Anthropic publishes no embedding model of its own and recommends Voyage AI, so
 that is the "Anthropic" line here; the key comes from voyageai.com.
+
+**Open-source, on your own machine.** Runs through `fastembed`: no key, no
+external service, company content never leaves the machine. The best
+multilingual option is `intfloat/multilingual-e5-large` (1024 dimensions); a
+lighter one:
+
+```ini
+EMBED_MODEL=intfloat/multilingual-e5-large                                 # 1024d
+EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2   # 384d
+```
 
 The same rule as for the chat model applies: **`EMBED_API_BASE` is only for a
 server of your own** (vLLM, LM Studio, a proxy) — leave it unset for hosted

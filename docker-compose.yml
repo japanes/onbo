@@ -4,9 +4,11 @@
 #   docker compose logs -f app    # follow the assistant
 #   docker compose run --rm test  # hermetic pytest suite (dev profile)
 #
-# The only thing left outside is the LLM itself — pick one in .env (see
-# .env.example, which ships a ready block per provider):
-#   - hosted vendor: LLM_MODEL=gpt-4o-mini + LLM_API_KEY=... (no LLM_API_BASE)
+# The only thing left outside is the model itself. By default onbo talks to
+# OpenAI (chat gpt-5.6-terra + embeddings text-embedding-3-large), so .env needs
+# one line: OPENAI_API_KEY=sk-... Alternatives (see .env.example, a ready block
+# per provider):
+#   - another hosted vendor: LLM_MODEL=... + LLM_API_KEY=... (no LLM_API_BASE)
 #   - Ollama on the host (your GPU):
 #       LLM_API_BASE=http://host.docker.internal:11434
 #       plus OLLAMA_HOST=0.0.0.0 on the host, or the container can't reach it

@@ -3,9 +3,10 @@
 # falls back to the default), so a bare `docker compose up` + host run needs no .env.
 
 llm:
-  # LiteLLM model string. Defaults to a LOCAL model on your GPU via Ollama.
-  # For a cloud vendor instead: set LLM_MODEL=gpt-4o-mini and LLM_API_KEY=sk-...
-  model: ${LLM_MODEL:-ollama_chat/llama3.2:3b}
+  # LiteLLM model string. Defaults to OpenAI — put LLM_API_KEY=sk-... in .env.
+  # For open weights on your own GPU instead: LLM_MODEL=ollama_chat/qwen2.5:7b
+  # plus LLM_API_BASE=http://host.docker.internal:11434
+  model: ${LLM_MODEL:-gpt-5.6-terra}
   api_key: ${LLM_API_KEY:-}
   # Leave EMPTY for hosted vendors (OpenAI / Anthropic / Gemini): LiteLLM then
   # uses each provider's own endpoint. Set it only for self-hosted servers —
@@ -13,13 +14,13 @@ llm:
   api_base: ${LLM_API_BASE:-}
 
 embeddings:
-  # Default: an open-source multilingual model running locally via fastembed
-  # (1024-dim, no API key, content never leaves the machine). For a hosted one
-  # set EMBED_MODEL + EMBED_API_KEY, e.g. text-embedding-3-large (OpenAI),
-  # gemini/gemini-embedding-001, voyage/voyage-3-large (Anthropic recommends
-  # Voyage — it has no embedding model of its own).
+  # Default: OpenAI text-embedding-3-large (3072-dim) — needs EMBED_API_KEY.
+  # Other hosted options: gemini/gemini-embedding-001, voyage/voyage-3-large
+  # (Anthropic recommends Voyage — it has no embedding model of its own).
+  # To keep content on this machine instead, name a fastembed model, e.g.
+  # EMBED_MODEL=intfloat/multilingual-e5-large (1024-dim, no key, no vendor).
   # Any model change changes the vector size: run `onbo kb reindex` after it.
-  model: ${EMBED_MODEL:-intfloat/multilingual-e5-large}
+  model: ${EMBED_MODEL:-text-embedding-3-large}
   provider: ${EMBED_PROVIDER:-auto}    # auto (guess from the model string) | local | api
   api_key: ${EMBED_API_KEY:-}
   api_base: ${EMBED_API_BASE:-}        # only for a self-hosted OpenAI-compatible server

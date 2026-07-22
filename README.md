@@ -6,7 +6,7 @@ Open-source onboarding assistant **for any software**. It accepts user requests 
 
 - **License:** MIT
 - **Language:** Python
-- **Status:** 🚧 early but functional — every layer is implemented, not just stubbed. Profile actions really execute over HTTP against your product's API, and a **bundled demo backend** lets you run them end-to-end without one. There's a **visual admin panel** at `/admin`, **seeded demo users**, and a **pytest suite**. The pipeline works even without an LLM (heuristic fallback), and voice **auto-falls back to CPU** if the GPU runtime is missing. RAG / channels / STT still need their optional dependencies and services (Qdrant, Postgres, Redis).
+- **Status:** 🚧 early but functional — every layer is implemented, not just stubbed. Profile actions really execute over HTTP against your product's API, and a **bundled demo backend** lets you run them end-to-end without one. There's a **visual admin panel** at `/admin`, **seeded demo users**, and a **pytest suite**. Out of the box it uses OpenAI (one `OPENAI_API_KEY` covers chat and embeddings), but every model is swappable — including fully local ones. Classification survives an unreachable LLM (heuristic fallback), and voice **auto-falls back to CPU** if the GPU runtime is missing. RAG / channels / STT still need their optional dependencies and services (Qdrant, Postgres, Redis).
 
 **Step-by-step guides:**
 [1 — install & configure](docs/HOWTO-1-setup.md) ·
@@ -182,11 +182,11 @@ onbo llm-export --out llm.json              # write the machine-readable manifes
 
 ## Running
 
-The recommended local setup runs the **infrastructure in Docker** and the **app on the host**, so faster-whisper (STT) and a local LLM use your GPU directly. By default the LLM is a local [Ollama](https://ollama.com) model — no cloud key needed.
+The recommended local setup runs the **infrastructure in Docker** and the **app on the host**, so faster-whisper (STT) uses your GPU directly. By default onbo talks to OpenAI — chat `gpt-5.6-terra`, embeddings `text-embedding-3-large` — so `.env` needs one line: `OPENAI_API_KEY=sk-...`.
 
 ```bash
+cp .env.example .env          # then put your OpenAI key in it
 docker compose up -d          # infra only: qdrant + postgres + redis
-ollama pull llama3.2:3b       # the default local classifier model
 
 ./run.sh about                # index the self-docs into the `about` collection
 ./run.sh kb seed              # load the starter FAQ
@@ -194,8 +194,10 @@ ollama pull llama3.2:3b       # the default local classifier model
 ```
 
 `run.sh` runs `onbo` from a project venv and points the dynamic linker at the CUDA
-libraries that ship in the venv, so faster-whisper loads on the GPU. To use a cloud
-LLM instead of Ollama, set `LLM_MODEL` / `LLM_API_KEY` in `.env` (see `.env.example`).
+libraries that ship in the venv, so faster-whisper loads on the GPU. To keep everything
+on your own machine instead, set `LLM_MODEL=ollama_chat/llama3.2:3b` +
+`LLM_API_BASE=http://localhost:11434` ([Ollama](https://ollama.com)) and
+`EMBED_MODEL=intfloat/multilingual-e5-large` in `.env` (see `.env.example`).
 
 The app can also run fully in Docker (CPU-only STT — Docker GPU passthrough needs
 `nvidia-container-toolkit`):
