@@ -1,0 +1,162 @@
+<!doctype html>
+<!--
+  Minimal web chat for onbo: text, voice (browser mic -> POST /voice) and the
+  Ok/Cancel cards for `mode: confirm` actions.
+
+  Copy it into ./media so the app serves it from the same origin (no CORS setup):
+
+      cp docs/examples/chat.html media/
+      open http://localhost:18000/media/chat.html
+
+  The mic needs a secure context — localhost counts, a remote host needs HTTPS.
+  This is a demo page, not an auth system: user_id is typed in by hand, so put a
+  real login in front of /chat before showing this to actual employees.
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>onbo — чат</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.45 system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; }
+  header { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  #log { border: 1px solid #8883; border-radius: 8px; padding: 12px; height: 60vh; overflow-y: auto; }
+  .msg { margin: 8px 0; white-space: pre-wrap; }
+  .me { text-align: right; opacity: .85; }
+  .bot { text-align: left; }
+  .sys { font-size: 13px; opacity: .6; text-align: center; }
+  .card { border: 1px solid #8886; border-radius: 8px; padding: 8px; margin: 8px 0; }
+  form { display: flex; gap: 8px; margin-top: 12px; }
+  input, button { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #8886; background: transparent; color: inherit; }
+  #text { flex: 1; }
+  button { cursor: pointer; }
+  button.rec { background: #d33; color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <label>user_id <input id="user" value="acc1" size="8"></label>
+  <span class="sys">демо-пользователи: acc1 · sup1 · admin</span>
+</header>
+
+<div id="log"></div>
+
+<form id="form">
+  <input id="text" placeholder="Спросите или дайте команду…" autocomplete="off">
+  <button type="submit">Отправить</button>
+  <button type="button" id="mic" title="Записать голос">🎤</button>
+</form>
+
+<script>
+const log = document.getElementById('log');
+const userInput = document.getElementById('user');
+
+function add(text, cls) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+// `mode: confirm` actions come back as needs_confirm and wait for POST /confirm.
+function addConfirm(result) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.textContent = result.confirm_prompt || result.message;
+  for (const [label, approved] of [['Ок', true], ['Отмена', false]]) {
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    btn.style.marginLeft = '8px';
+    btn.onclick = async () => {
+      card.remove();
+      const res = await post('/confirm', {
+        user_id: userInput.value, action: result.action, approved,
+      });
+      add(res.message || '(пусто)', 'bot');
+    };
+    card.appendChild(btn);
+  }
+  log.appendChild(card);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function post(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(path + ' → HTTP ' + res.status);
+  return res.json();
+}
+
+function render(data) {
+  add(data.text, 'bot');
+  for (const r of data.results || []) {
+    if (r.status === 'needs_confirm') addConfirm(r);
+  }
+}
+
+document.getElementById('form').onsubmit = async (event) => {
+  event.preventDefault();
+  const field = document.getElementById('text');
+  const text = field.value.trim();
+  if (!text) return;
+  field.value = '';
+  add(text, 'me');
+  try {
+    render(await post('/chat', { user_id: userInput.value, text, locale: 'ru' }));
+  } catch (err) {
+    add(String(err), 'sys');
+  }
+};
+
+// Voice: record with the browser, POST the blob to /voice, which runs whisper
+// and then the very same pipeline as a typed message.
+let recorder = null;
+document.getElementById('mic').onclick = async function () {
+  if (recorder && recorder.state === 'recording') {
+    recorder.stop();
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    add('Микрофон недоступен: ' + err, 'sys');
+    return;
+  }
+  const chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (event) => chunks.push(event.data);
+  recorder.onstop = async () => {
+    stream.getTracks().forEach((track) => track.stop());
+    this.classList.remove('rec');
+    const pending = add('… распознаю', 'sys');
+    const form = new FormData();
+    form.append('user_id', userInput.value);
+    form.append('locale', 'ru');
+    form.append('audio', new Blob(chunks, { type: recorder.mimeType }), 'voice.webm');
+    try {
+      const res = await fetch('/voice', { method: 'POST', body: form });
+      const data = await res.json();
+      pending.remove();
+      if (data.transcript) add(data.transcript, 'me');
+      render(data);
+    } catch (err) {
+      pending.textContent = String(err);
+    }
+  };
+  recorder.start();
+  this.classList.add('rec');
+  add('Запись… нажмите 🎤 ещё раз, чтобы отправить', 'sys');
+};
+
+// The proactive digest: ask for it explicitly so the page opens with content.
+post('/welcome', { user_id: userInput.value }).then(render).catch(() => {});
+</script>
+</body>
+</html>

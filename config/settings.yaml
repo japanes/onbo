@@ -7,7 +7,10 @@ llm:
   # For a cloud vendor instead: set LLM_MODEL=gpt-4o-mini and LLM_API_KEY=sk-...
   model: ${LLM_MODEL:-ollama_chat/llama3.2:3b}
   api_key: ${LLM_API_KEY:-}
-  api_base: ${LLM_API_BASE:-http://localhost:11434}
+  # Leave EMPTY for hosted vendors (OpenAI / Anthropic / Gemini): LiteLLM then
+  # uses each provider's own endpoint. Set it only for self-hosted servers —
+  # Ollama (http://localhost:11434), vLLM, LM Studio, llama.cpp, a proxy.
+  api_base: ${LLM_API_BASE:-}
 
 embeddings:
   model: ${EMBED_MODEL:-intfloat/multilingual-e5-large}   # open-source multilingual embeddings (fastembed), 1024-dim

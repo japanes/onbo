@@ -1,0 +1,327 @@
+# How-to 2. База знаний, команды, чат и голос
+
+Продолжение [HOWTO-1-setup.ru.md](HOWTO-1-setup.ru.md): стенд уже поднят
+(`docker compose up -d`), модель подключена. Дальше — наполнить ассистента
+содержимым и дать сотрудникам чат с голосом.
+
+Все команды ниже выполняются внутри контейнера:
+`docker compose exec app onbo ...`. Каталог проекта смонтирован в контейнер, так
+что пути к файлам можно писать обычные, от корня репозитория.
+
+---
+
+## 1. Как устроена база знаний
+
+- **Коллекция** — папка материалов с тегами доступа (`department`, `roles`).
+- В коллекции лежат **документы** (длинный текст, режется на фрагменты) и
+  **Q&A-пары** (готовый ответ на конкретный вопрос).
+- Postgres — основное хранилище, его правят руками. Qdrant — производный
+  поисковый индекс, он всегда пересобирается из Postgres (`onbo kb reindex`).
+- Доступ фильтруется на уровне поиска: сотрудник видит только материалы своего
+  отдела/роли плюс общие. Фильтр строится из профиля в базе, а не из текста
+  вопроса — попросить «покажи чужие документы» невозможно.
+
+Пара наследует теги коллекции, если у неё не заданы свои.
+
+## 2. Наполнение: четыре способа
+
+### 2.1. Готовые Q&A из YAML-файла (основной способ)
+
+Файл вида `config/seed_faq.yaml`:
+
+```yaml
+qa:
+  - question: "Как оформить отпуск?"
+    answer: "Заявка в HR-портале: Профиль → Отпуска → Новая заявка, за 14 дней."
+    collection: hr
+  - question: "Как оформить возврат средств?"
+    answer: "Возвраты оформляет бухгалтерия: приложите номер заказа и причину."
+    collection: accounting
+    department: accounting      # кто увидит: отдел
+    roles: [accountant]         # и/или роли
+    video_url: /media/kb/refund.mp4   # необязательный ролик к ответу
+```
+
+Импорт (идемпотентный — повторный импорт обновляет пары, не плодит дубли):
+
+```bash
+docker compose exec app onbo kb import docs/my_faq.yaml
+```
+
+### 2.2. Документы: файл, каталог или сайт
+
+```bash
+docker compose exec app onbo kb add-doc docs/handbook.md --collection hr
+docker compose exec app onbo kb add-doc docs/                --collection hr
+docker compose exec app onbo kb add-doc https://wiki.acme.com/onboarding --collection common
+docker compose exec app onbo kb add-doc docs/finance.md --collection accounting \
+    --department accounting --roles accountant
+```
+
+Документ режется на фрагменты автоматически. Форматы: `.md`, `.txt`, `.rst`, а
+также `.pdf` и `.docx` (для них нужны дополнительные пакеты — они входят в
+образ). При указании каталога он обходится рекурсивно, лишние типы файлов
+пропускаются.
+
+### 2.3. Одна пара из командной строки
+
+```bash
+docker compose exec app onbo kb add-qa \
+  "Как получить доступ к CRM?" "Заявка в Jira, проект ACCESS, шаблон «CRM»." \
+  --collection common
+```
+
+### 2.4. Веб-панель
+
+`http://localhost:18000/admin` — добавить/поправить/удалить пару, привязать
+видео, запустить переиндексацию. Панель пока одностраничная и **без пароля**:
+для десятка пар удобно, на реальном объёме и в открытой сети — нет (см. бэклог
+`.claude/PLAN3.md`).
+
+### 2.5. Черновик базы прямо из кода продукта (Claude Code)
+
+В репозитории лежат скиллы:
+
+- `/kb-from-code <путь к проекту>` — читает исходники и пишет `draft_faq.yaml`
+  человеческим языком (не языком API). Проверяете глазами → `onbo kb import`.
+- `/kb-video` — записывает экранный ролик по флоу в UI и озвучивает его; на
+  выходе mp4 для `video_url`.
+
+Черновик всегда проходит ревью: модель выдумывает детали, которых в продукте нет.
+
+### 2.6. Служебное
+
+```bash
+docker compose exec app onbo about        # переиндексировать самодокументацию («что я умею»)
+docker compose exec app onbo kb seed      # стартовый FAQ из config/seed_faq.yaml
+docker compose exec app onbo kb reindex   # пересобрать Qdrant из Postgres
+curl -s http://localhost:18000/admin/api/stats   # сколько всего коллекций/документов/пар
+```
+
+## 3. Видео-ролики к ответам
+
+Положите mp4 в `media/kb/` (каталог виден и на хосте, и в контейнере) и укажите
+в паре `video_url: /media/kb/refund.mp4`. Веб отдаёт файлы на `/media`
+самостоятельно. Для Telegram нужен абсолютный адрес — задайте
+`MEDIA_BASE_URL=https://onbo.acme.com` в `.env`, он подставится в ссылки.
+
+## 4. Набор команд (действия над продуктом)
+
+Команда = запись в `config/actions.yaml`. Меняете реестр — меняется поведение
+ассистента, код трогать не нужно.
+
+Три режима, по уровню риска:
+
+| Режим | Когда | Поведение |
+|---|---|---|
+| `chat` | низкий риск (язык, тема оформления) | выполняется сразу |
+| `confirm` | важное, но обратимое (email, телефон) | сначала карточка «Ок / Отмена» |
+| `link` | чувствительное (пароль, платежи) | в чате не выполняется никогда, выдаётся ссылка на страницу продукта |
+
+`sensitive: true` принудительно переводит действие в `link`.
+
+Простое действие без единой строчки кода — блок `api:` вызывается движком:
+
+```yaml
+actions:
+  set_language:
+    description: "Сменить язык интерфейса"
+    mode: chat
+    params:
+      lang: { type: enum, values: [ru, en], required: true }
+    api:
+      method: POST
+      path: "/api/users/{user_id}/language"     # относительно PRODUCT_API_BASE
+      body: { language: "{lang}" }
+      success_message: "Язык интерфейса переключён на «{lang}»."
+```
+
+С подтверждением и собственной валидацией:
+
+```yaml
+  change_email:
+    description: "Сменить email"
+    mode: confirm
+    confirm_prompt: "Поменять email на {new_email}?"
+    params:
+      new_email: { type: email, required: true }
+    handler: handlers.actions.change_email      # необязательно: свой Python-обработчик
+    api:
+      method: POST
+      path: "/api/users/{user_id}/email"
+      body: { email: "{new_email}" }
+      success_message: "Email изменён на {new_email}."
+```
+
+Чувствительное — только ссылкой:
+
+```yaml
+  change_password:
+    description: "Сменить пароль"
+    mode: link
+    link_url: "https://app.example.com/settings/security"
+    sensitive: true
+```
+
+**Пайплайн** — несколько действий одной фразой и одним подтверждением:
+
+```yaml
+pipelines:
+  new_order:
+    description: "Оформить заказ: накладные себе и клиенту, отправка клиенту"
+    mode: confirm
+    confirm_prompt: "Оформить заказ {order_id} и отправить накладные?"
+    roles: [accountant]
+    params:
+      order_id: { type: string, required: true }
+    steps:
+      - action: create_invoice_internal
+        params: { order_id: "{order_id}" }
+      - action: create_invoice_client
+        params: { order_id: "{order_id}" }
+      - action: send_invoice_to_client
+        params: { order_id: "{order_id}" }
+    on_error: stop        # stop = прервать после первой ошибки, continue = идти дальше
+```
+
+Шагом пайплайна может быть только `chat`/`confirm`-действие: чувствительное в
+пакет не попадёт.
+
+Черновик реестра из кода продукта:
+
+```bash
+docker compose exec app onbo scan /path/to/your/project    # печатает YAML-черновик
+```
+
+или скилл `/actions-from-code <путь>` в Claude Code. Черновик обязательно
+вычитывается: генерация касается паролей и персональных данных.
+
+После правки `config/actions.yaml`:
+
+```bash
+docker compose restart app
+```
+
+## 5. Приветствие новому сотруднику
+
+При первом сообщении (или по явному вызову) ассистент присылает подборку того,
+что доступно именно этой роли. Настройка в `config/settings.yaml`:
+
+```yaml
+welcome:
+  enabled: true
+  video:
+    accounting: /media/welcome/accounting.mp4   # стартовый ролик отделу или роли
+  text_overrides:
+    support: "Привет! Начни с раздела «Обработка обращений»."
+```
+
+Проверить:
+
+```bash
+curl -s -X POST http://localhost:18000/welcome \
+  -H 'Content-Type: application/json' -d '{"user_id":"acc1"}'
+```
+
+## 6. Веб-чат с голосом
+
+В репозитории лежит готовая страница чата: текст, микрофон и карточки
+подтверждения. Приложение отдаёт статику из `media/`, поэтому страницу
+достаточно туда положить — она окажется на том же домене, что и API, и никакой
+настройки CORS не потребуется:
+
+```bash
+cp docs/examples/chat.html media/
+# открыть http://localhost:18000/media/chat.html
+```
+
+Что делает страница:
+
+- поле `user_id` (демо-пользователи `acc1`, `sup1`, `admin`) — от него зависит,
+  что человек видит и что ему разрешено;
+- при открытии запрашивает приветствие;
+- текст уходит в `POST /chat`;
+- кнопка 🎤 — запись с микрофона, отправка в `POST /voice`, там whisper
+  распознаёт речь и дальше работает ровно тот же конвейер, что и для текста;
+- действия с `mode: confirm` показываются карточкой с кнопками «Ок / Отмена»,
+  ответ уходит в `POST /confirm`.
+
+Микрофон браузер даёт только в защищённом контексте: `localhost` подходит, а
+удалённый хост потребует HTTPS.
+
+Голос отключается глобально (`STT_ENABLED=false`) или для конкретного канала
+(`channels.web.accept_voice` в `config/settings.yaml`).
+
+## 7. HTTP API — для встраивания в свой интерфейс
+
+```bash
+# вопрос или команда
+curl -s -X POST http://localhost:18000/chat -H 'Content-Type: application/json' \
+  -d '{"user_id":"acc1","text":"смени мой email на new@acme.com","locale":"ru"}'
+# → {"text":"Нужно подтверждение:\n• Поменять email на new@acme.com?",
+#    "results":[{"status":"needs_confirm","action":"change_email",...}],"welcomed":false}
+
+# подтверждение
+curl -s -X POST http://localhost:18000/confirm -H 'Content-Type: application/json' \
+  -d '{"user_id":"acc1","action":"change_email","approved":true}'
+# → {"status":"done","message":"Email изменён на new@acme.com."}
+
+# голос: multipart, поля user_id / audio / locale
+curl -s -X POST http://localhost:18000/voice \
+  -F user_id=acc1 -F locale=ru -F audio=@voice.webm
+# → {"text":"...", "transcript":"смени язык на английский"}
+
+# приветствие
+curl -s -X POST http://localhost:18000/welcome -H 'Content-Type: application/json' \
+  -d '{"user_id":"acc1"}'
+```
+
+Статусы в `results[].status`: `answer` (ответ из базы), `done` (выполнено),
+`needs_confirm` (ждёт «Ок»), `needs_input` (не хватает параметров), `link`
+(выдана ссылка), `dry_run` (бэкенд продукта не подключён), `failed`.
+
+Полная схема — `http://localhost:18000/docs` (Swagger).
+
+Встраивая чат в свой фронтенд, помните: `user_id` берётся из тела запроса как
+есть. Ставьте перед onbo свой прокси, который проверяет сессию сотрудника и сам
+подставляет идентификатор, иначе любой сможет представиться кем угодно.
+Отдельной страницы чата на `/` пока нет — есть только эта демо-страница.
+
+## 8. Telegram
+
+```ini
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=123456:AA...
+```
+
+```bash
+docker compose exec -d app onbo serve telegram
+```
+
+Голосовые сообщения бот принимает и распознаёт тем же движком; `/start`
+присылает приветственную подборку.
+
+## 9. Манифест для внешних ИИ-агентов
+
+`GET /llm.json` (и `/.well-known/llm.json`) отдаёт публичную часть базы и список
+команд в машинночитаемом виде — чтобы сторонний ассистент, зашедший на ваш сайт,
+понимал, что умеет продукт. Выгрузка файлом для статического хостинга:
+
+```bash
+docker compose exec app onbo llm-export --out llm.json
+```
+
+Приватные материалы (с `department`/`roles`) в манифест не попадают.
+
+## 10. Порядок действий для нового проекта
+
+1. Поднять стенд и подключить модель — файл 1.
+2. `PRODUCT_API_BASE` и профили сотрудников (`app_user`) — файл 1, разделы 6–7.
+3. Собрать 20–30 Q&A по реальным вопросам новичков (`/kb-from-code` → ревью →
+   `onbo kb import`).
+4. Описать 3–5 команд в `config/actions.yaml`, начиная с безобидных (`chat`),
+   чувствительные — сразу `link`.
+5. Проверить на демо-бэкенде (`dry_run`/`done` в ответах), потом переключить на
+   реальный API.
+6. Дать людям `chat.html` (или встроить `/chat` в свой интерфейс), закрыв
+   `/admin` от внешнего доступа.

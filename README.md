@@ -8,6 +8,10 @@ Open-source onboarding assistant **for any software**. It accepts user requests 
 - **Language:** Python
 - **Status:** 🚧 early but functional — every layer is implemented, not just stubbed. Profile actions really execute over HTTP against your product's API, and a **bundled demo backend** lets you run them end-to-end without one. There's a **visual admin panel** at `/admin`, **seeded demo users**, and a **pytest suite**. The pipeline works even without an LLM (heuristic fallback), and voice **auto-falls back to CPU** if the GPU runtime is missing. RAG / channels / STT still need their optional dependencies and services (Qdrant, Postgres, Redis).
 
+**Step-by-step guides (in Russian):**
+[1 — install & configure](docs/HOWTO-1-setup.ru.md) ·
+[2 — knowledge base, commands, chat & voice](docs/HOWTO-2-kb-and-chat.ru.md)
+
 ---
 
 ## Why

@@ -4,13 +4,14 @@
 #   docker compose logs -f app    # follow the assistant
 #   docker compose run --rm test  # hermetic pytest suite (dev profile)
 #
-# The only thing left outside is the LLM itself: by default the app talks to an
-# Ollama daemon on the host (http://host.docker.internal:11434) so it can use
-# your GPU. Two ways to change that, both via .env:
-#   - cloud vendor:  LLM_MODEL=gpt-4o-mini  LLM_API_KEY=sk-...
+# The only thing left outside is the LLM itself — pick one in .env (see
+# .env.example, which ships a ready block per provider):
+#   - hosted vendor: LLM_MODEL=gpt-4o-mini + LLM_API_KEY=... (no LLM_API_BASE)
+#   - Ollama on the host (your GPU):
+#       LLM_API_BASE=http://host.docker.internal:11434
+#       plus OLLAMA_HOST=0.0.0.0 on the host, or the container can't reach it
 #   - Ollama in Docker (no host install, CPU-only):
-#       docker compose --profile ollama up -d
-#       .env: LLM_API_BASE=http://ollama:11434
+#       docker compose --profile ollama up -d   +   LLM_API_BASE=http://ollama:11434
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -64,8 +65,9 @@ services:
       QDRANT_URL: http://qdrant:6333
       POSTGRES_DSN: postgresql+psycopg://onbo:onbo@postgres:5432/onbo
       REDIS_URL: redis://redis:6379/0
-      PRODUCT_API_BASE: http://demo-backend:18100   # actions hit the demo backend for real
-      LLM_API_BASE: ${LLM_API_BASE:-http://host.docker.internal:11434}
+      PRODUCT_API_BASE: ${PRODUCT_API_BASE:-http://demo-backend:18100}  # demo backend by default
+      # LLM_MODEL / LLM_API_KEY / LLM_API_BASE come from .env (env_file below),
+      # so a hosted vendor needs no api_base and Ollama users set theirs once.
       STT_DEVICE: cpu             # no GPU inside the container
       STT_COMPUTE: int8
       STT_MODEL: ${STT_MODEL:-base}   # large-v3 on CPU is slow and a 3 GB download
@@ -79,7 +81,6 @@ services:
     volumes:
       - .:/app                    # live edits without a rebuild (editable install)
       - modelcache:/root/.cache            # embedding/STT weights survive rebuilds
-      - media:/app/media
     depends_on:
       postgres: {condition: service_healthy}
       qdrant: {condition: service_healthy}
@@ -97,9 +98,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      # ./media is part of this mount, so videos and the demo chat page stay
+      # visible and editable from the host.
       - .:/app
       - modelcache:/root/.cache
-      - media:/app/media
     depends_on:
       bootstrap: {condition: service_completed_successfully}
       demo-backend: {condition: service_started}
@@ -145,5 +147,4 @@ volumes:
   pgdata:
   qdrantdata:
   modelcache:
-  media:
   ollamadata:
