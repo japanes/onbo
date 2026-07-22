@@ -2,33 +2,22 @@
 
 The Postgres ``app_user.welcomed_at`` column is canonical when the DB is up; the
 ``Session`` (Redis / in-memory) is the db-less fallback so the skeleton still
-greets each user exactly once without Postgres. A best-effort ``ALTER TABLE``
-adds the column to pre-existing databases (no Alembic — same pattern as the KB).
+greets each user exactly once without Postgres. The column is added to pre-existing
+databases by the best-effort migrations in ``state/db.py`` (no Alembic).
 """
 from __future__ import annotations
 
 from ..config import Settings
 from .session import Session
 
-_MIGRATION = "ALTER TABLE app_user ADD COLUMN IF NOT EXISTS welcomed_at TIMESTAMPTZ"
-_migrated = False
-
-
 def _ensure_column() -> None:
-    global _migrated
-    if _migrated:
-        return
+    """Make sure ``app_user.welcomed_at`` exists (see state/db.py::_MIGRATIONS)."""
     try:
-        from sqlalchemy import text
-
-        from .db import init_db, session_scope
+        from .db import init_db
 
         init_db()
-        with session_scope() as session:
-            session.execute(text(_MIGRATION))
     except Exception:
         pass
-    _migrated = True
 
 
 async def is_welcomed(user_id: str, settings: Settings, session: Session) -> bool:

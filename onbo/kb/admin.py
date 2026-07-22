@@ -30,25 +30,12 @@ class KnowledgeBaseAdmin:
 
     # -- schema / collections -------------------------------------------------
 
-    # Best-effort column additions for tables that already exist (no Alembic).
-    # Each is idempotent (IF NOT EXISTS) and tolerant of an old server that
-    # doesn't support the syntax — the feature just stays unavailable there.
-    _MIGRATIONS = (
-        "ALTER TABLE kb_qa ADD COLUMN IF NOT EXISTS video_url VARCHAR(512)",
-    )
-
     def _ensure_schema(self) -> None:
+        # init_db() is idempotent and also applies the best-effort column
+        # migrations (video_url lives in state/db.py::_MIGRATIONS).
         if self._schema_ready:
             return
-        init_db()  # create_all is idempotent
-        from sqlalchemy import text
-
-        for stmt in self._MIGRATIONS:
-            try:
-                with session_scope() as session:
-                    session.execute(text(stmt))
-            except Exception:  # pragma: no cover - old/limited server; skip silently
-                pass
+        init_db()
         self._schema_ready = True
 
     @staticmethod

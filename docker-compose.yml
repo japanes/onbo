@@ -1,11 +1,16 @@
-# Local infrastructure: Qdrant + Postgres + Redis, plus containerized dev
-# targets so tests and the app run entirely in Docker (no host Python/venv).
+# The whole application in Docker. One command brings up everything:
 #
-# Common flows:
-#   docker compose up -d                       # infra only (default services)
-#   docker compose run --rm test               # hermetic pytest suite (lean image)
-#   docker compose --profile app up app        # full app against the infra
-#   docker compose --profile app up demo-backend  # built-in product demo API
+#   docker compose up -d          # infra + bootstrap + app + demo backend
+#   docker compose logs -f app    # follow the assistant
+#   docker compose run --rm test  # hermetic pytest suite (dev profile)
+#
+# The only thing left outside is the LLM itself: by default the app talks to an
+# Ollama daemon on the host (http://host.docker.internal:11434) so it can use
+# your GPU. Two ways to change that, both via .env:
+#   - cloud vendor:  LLM_MODEL=gpt-4o-mini  LLM_API_KEY=sk-...
+#   - Ollama in Docker (no host install, CPU-only):
+#       docker compose --profile ollama up -d
+#       .env: LLM_API_BASE=http://ollama:11434
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -13,6 +18,11 @@ services:
       - "16333:6333"
     volumes:
       - qdrantdata:/qdrant/storage
+    healthcheck:   # no curl in the image; raw TCP probe (bash-only syntax)
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   postgres:
     image: postgres:16
@@ -24,11 +34,100 @@ services:
       - "15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onbo -d onbo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   redis:
     image: redis:7
     ports:
       - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot data bootstrap: self-docs into the `about` collection, the starter
+  # FAQ, and the demo users. Idempotent — re-running just re-upserts, so it is
+  # safe on every `up`. `app` waits for it to finish.
+  bootstrap:
+    build:
+      context: .
+      target: base
+    command: >
+      sh -c "onbo about && onbo kb seed && onbo users seed"
+    restart: "no"
+    environment: &onbo_env
+      QDRANT_URL: http://qdrant:6333
+      POSTGRES_DSN: postgresql+psycopg://onbo:onbo@postgres:5432/onbo
+      REDIS_URL: redis://redis:6379/0
+      PRODUCT_API_BASE: http://demo-backend:18100   # actions hit the demo backend for real
+      LLM_API_BASE: ${LLM_API_BASE:-http://host.docker.internal:11434}
+      STT_DEVICE: cpu             # no GPU inside the container
+      STT_COMPUTE: int8
+      STT_MODEL: ${STT_MODEL:-base}   # large-v3 on CPU is slow and a 3 GB download
+      FASTEMBED_CACHE_PATH: /root/.cache/fastembed   # embeddings land in the cache volume
+      HF_HOME: /root/.cache/huggingface              # ... and so do the whisper weights
+    env_file:
+      - path: .env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app                    # live edits without a rebuild (editable install)
+      - modelcache:/root/.cache            # embedding/STT weights survive rebuilds
+      - media:/app/media
+    depends_on:
+      postgres: {condition: service_healthy}
+      qdrant: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  app:
+    build:
+      context: .
+      target: base
+    command: onbo serve web
+    environment: *onbo_env
+    env_file:
+      - path: .env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app
+      - modelcache:/root/.cache
+      - media:/app/media
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+      demo-backend: {condition: service_started}
+    ports:
+      - "18000:18000"
+
+  # Built-in fake product backend (onbo demo-backend) so real HTTP actions have
+  # something to call end-to-end. Same image as `app`.
+  demo-backend:
+    build:
+      context: .
+      target: base
+    command: onbo demo-backend --port 18100
+    volumes:
+      - .:/app
+    ports:
+      - "18100:18100"
+
+  # Optional: Ollama inside Docker for machines without a host install. CPU-only
+  # (GPU passthrough needs nvidia-container-toolkit), so expect slow replies.
+  #   docker compose --profile ollama up -d   +   LLM_API_BASE=http://ollama:11434
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollamadata:/root/.ollama
 
   # Hermetic pytest suite in a lean container (no Qdrant/Postgres/Redis/LLM
   # needed — the tests use fakes + qdrant-client :memory:). Source is mounted so
@@ -42,43 +141,9 @@ services:
       - .:/app
     command: ["pytest", "-q"]
 
-  app:
-    build:
-      context: .
-      target: base
-    profiles: ["app"]           # off by default; only runs on `--profile app`
-    command: onbo serve web
-    env_file:
-      - path: .env
-        required: false
-    environment:                # reach the sibling services and host Ollama by name
-      QDRANT_URL: http://qdrant:6333
-      POSTGRES_DSN: postgresql+psycopg://onbo:onbo@postgres:5432/onbo
-      REDIS_URL: redis://redis:6379/0
-      LLM_API_BASE: http://host.docker.internal:11434
-      STT_DEVICE: cpu           # no GPU inside the container
-      STT_COMPUTE: int8
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - .:/app                  # live edits without a rebuild (editable install)
-    depends_on: [postgres, qdrant, redis]
-    ports:
-      - "18000:18000"
-
-  # Built-in fake product backend (onbo demo-backend) so real HTTP actions have
-  # something to call end-to-end. Same image as `app`.
-  demo-backend:
-    build:
-      context: .
-      target: base
-    profiles: ["app"]
-    command: onbo demo-backend --port 18100
-    volumes:
-      - .:/app
-    ports:
-      - "18100:18100"
-
 volumes:
   pgdata:
   qdrantdata:
+  modelcache:
+  media:
+  ollamadata:

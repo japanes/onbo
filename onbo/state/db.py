@@ -54,10 +54,37 @@ def _load_all_models() -> None:
     from . import models as _state_models  # noqa: F401
 
 
+# Best-effort column additions for tables that already exist (no Alembic here).
+# create_all() only creates MISSING TABLES, so a column added in a later version
+# never reaches a database seeded by an earlier one. Each statement is idempotent
+# and failures are swallowed — an old server just leaves the feature unavailable.
+_MIGRATIONS = (
+    "ALTER TABLE app_user ADD COLUMN IF NOT EXISTS welcomed_at TIMESTAMPTZ",
+    "ALTER TABLE kb_qa ADD COLUMN IF NOT EXISTS video_url VARCHAR(512)",
+)
+_migrated = False
+
+
+def _apply_migrations() -> None:
+    global _migrated
+    if _migrated:
+        return
+    _migrated = True  # one attempt per process, even if a statement fails
+    from sqlalchemy import text
+
+    for stmt in _MIGRATIONS:
+        try:
+            with session_scope() as session:
+                session.execute(text(stmt))
+        except Exception:  # pragma: no cover - old/limited server; skip silently
+            pass
+
+
 def init_db() -> None:
-    """Create tables from the ORM metadata (dev convenience)."""
+    """Create tables from the ORM metadata and patch pre-existing ones (dev convenience)."""
     _load_all_models()
     Base.metadata.create_all(get_engine())  # type: ignore[union-attr]
+    _apply_migrations()
 
 
 def db_available() -> bool:

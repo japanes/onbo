@@ -1,0 +1,15 @@
+# Keep the build context small: the venv alone is ~3 GB and never belongs in
+# the image (the container installs its own dependencies).
+.venv/
+venv/
+.git/
+tmp/
+media/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.env
+.claude/skills/kb-video/.venv/
+.claude/skills/kb-video/refs/*.wav
+.claude/skills/kb-video/bgm/*.mp3
