@@ -1,8 +1,8 @@
 """Visual KB admin: a small FastAPI router mounted at /admin by the web channel.
 
 It's a thin HTTP skin over ``kb.admin.KnowledgeBaseAdmin`` — list/add/delete Q&A,
-browse documents and collections, and trigger seed / reindex. A single
-self-contained HTML page (no build step, no CDN) drives it from the browser.
+browse documents and collections, and trigger a reindex. A single self-contained
+HTML page (no build step, no CDN) drives it from the browser.
 
 Auth: set ``ONBO_ADMIN_TOKEN`` to require an ``X-Admin-Token`` header on the
 /api/* routes. Unset means open — fine for a localhost dev box, not for prod.
@@ -98,16 +98,6 @@ def build_admin_router(settings: Settings):
             raise HTTPException(status_code=409, detail=str(exc))
         return {"reindexed": total, "ok": True}
 
-    @api.post("/seed")
-    async def seed():
-        return {"seeded": await admin.seed(), "ok": True}
-
-    @api.post("/seed-users")
-    async def seed_users():
-        from ..auth.profiles import seed_demo_users
-
-        return {"users": seed_demo_users(settings), "ok": True}
-
     router.include_router(api)
     return router
 
@@ -165,8 +155,6 @@ _ADMIN_HTML = """<!doctype html>
   <div class="card">
     <h2>Действия</h2>
     <div class="actions">
-      <button onclick="seed()">Загрузить стартовый FAQ</button>
-      <button onclick="seedUsers()" class="ghost">Создать демо-пользователей</button>
       <button onclick="reindex()" class="ghost">Переиндексировать из Postgres</button>
     </div>
   </div>
@@ -230,7 +218,8 @@ async function refresh(){
        <td><b>${esc(r.question)}</b>${r.video_url?' 🎬':''}<br><span class="stat">${esc(r.answer)}</span></td>
        <td><button class="ghost" onclick="editVideo(${r.id})">видео</button>
            <button class="danger" onclick="delQA(${r.id})">удалить</button></td></tr>`; }).join('')
-      : '<tr><td colspan="5" class="stat">пусто — загрузите стартовый FAQ</td></tr>';
+      : '<tr><td colspan="5" class="stat">пусто — добавьте первую пару в форме слева '
+        + 'или импортируйте файл: onbo kb import ./faq.yaml (образец — config/kb.example.yaml)</td></tr>';
   } catch(e){ $('#qatab').innerHTML = `<tr><td colspan="5" class="stat">${e.message}</td></tr>`; }
   try {
     const d = await api('/api/documents'); $('#doccount').textContent = `(${d.length})`;
@@ -256,8 +245,6 @@ async function editVideo(id){
 }
 async function delQA(id){ if(!confirm('Удалить Q&A #'+id+'?')) return;
   try { await api('/api/qa/'+id,{method:'DELETE'}); toast('удалено'); refresh(); } catch(e){ toast(e.message); } }
-async function seed(){ try { const r=await api('/api/seed',{method:'POST'}); toast('загружено: '+r.seeded); refresh(); } catch(e){ toast(e.message); } }
-async function seedUsers(){ try { const r=await api('/api/seed-users',{method:'POST'}); toast('пользователей: '+r.users); } catch(e){ toast(e.message); } }
 async function reindex(){ toast('переиндексация…'); try { const r=await api('/api/reindex',{method:'POST'}); toast('переиндексировано: '+r.reindexed); refresh(); } catch(e){ toast(e.message); } }
 $('#token').value = TOK;
 refresh();

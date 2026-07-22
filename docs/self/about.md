@@ -13,8 +13,9 @@
 1. Скопируйте `config/settings.yaml` и задайте переменные окружения
    (`OPENAI_API_KEY`, `POSTGRES_DSN`, `REDIS_URL`, `TELEGRAM_BOT_TOKEN`).
 2. Опишите действия вашего продукта в `config/actions.yaml`.
-3. Наполните базу знаний: `onbo kb add-doc ./handbook --collection support` и
-   `onbo kb seed`.
+3. Наполните базу знаний — она стартует пустой:
+   `onbo kb add-doc ./handbook --collection support` для документов,
+   `onbo kb import ./faq.yaml` для готовых пар (образец — `config/kb.example.yaml`).
 4. Проиндексируйте доки о самом ассистенте: `onbo about`.
 5. Запустите канал: `onbo serve telegram` или `onbo serve web`.
 

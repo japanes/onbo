@@ -8,7 +8,7 @@
 #
 # Usage:
 #   ./run.sh about                 # index self-docs into the `about` collection
-#   ./run.sh kb seed               # load the starter FAQ
+#   ./run.sh kb import ./faq.yaml  # load your own Q&A pairs
 #   ./run.sh serve web             # run the web channel on the host (GPU + Ollama)
 set -euo pipefail
 

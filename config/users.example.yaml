@@ -1,0 +1,28 @@
+# Template for the user directory. Nothing here is loaded automatically.
+#
+# The directory is what makes access control work: a profile (department +
+# roles) decides which knowledge-base content and which profile actions a person
+# can reach. It is resolved from this table alone — never from what the user
+# types and never from the LLM. Anyone not listed here gets the least-privilege
+# default (no department, roles: [employee]) and sees public content only.
+#
+# Copy it, put your own people in, then:
+#
+#   onbo users import ./my_users.yaml
+#
+# Or one at a time:
+#
+#   onbo users add 148302341 --department accounting --roles accountant
+#
+# user_id is the channel-facing id: the Telegram user id, or whatever the web
+# front-end sends as user_id. Import is idempotent — re-running rewrites the
+# department and roles of anyone already listed.
+
+users:
+  - user_id: "148302341"
+    department: accounting
+    roles: [accountant]
+
+  - user_id: "alice@example.com"
+    department: support
+    roles: [support, admin]

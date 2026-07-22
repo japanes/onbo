@@ -9,13 +9,9 @@ from __future__ import annotations
 from ..config import Settings
 from ..core.schemas import Profile
 
-# Demo directory so the skeleton is testable end-to-end without a real user DB.
-# Real deployments resolve the profile from Postgres (see _lookup_db).
-_DEMO_USERS: dict[str, dict] = {
-    "acc1": {"department": "accounting", "roles": ["accountant"]},
-    "sup1": {"department": "support", "roles": ["support"]},
-    "admin": {"department": "it", "roles": ["admin"]},
-}
+# Least-privilege profile for anyone the directory doesn't know: no department,
+# so only content tagged as public reaches them.
+_DEFAULT_ROLES = ["employee"]
 
 
 def _lookup_db(user_id: str, settings: Settings) -> Profile | None:
@@ -36,31 +32,44 @@ def _lookup_db(user_id: str, settings: Settings) -> Profile | None:
         return None
 
 
-def seed_demo_users(settings: Settings) -> int:
-    """Upsert the demo directory into the users table (dev convenience)."""
+def upsert_users(users: list[dict]) -> int:
+    """Write directory entries into the users table.
+
+    Each item: ``{user_id, department?, roles?}``. Idempotent by ``user_id``, so
+    re-importing an updated file just rewrites the department and roles.
+    Returns 0 when there is no reachable Postgres.
+    """
     from ..state.db import db_available, init_db, session_scope
     from ..state.models import User
 
     if User is None or not db_available():
         return 0
     init_db()
+    count = 0
     with session_scope() as session:
-        for user_id, attrs in _DEMO_USERS.items():
+        for item in users:
+            user_id = str(item["user_id"])
             row = session.get(User, user_id)
             if row is None:
                 row = User(user_id=user_id)
                 session.add(row)
-            row.department = attrs["department"]
-            row.roles = attrs["roles"]
-    return len(_DEMO_USERS)
+            row.department = item.get("department")
+            row.roles = list(item.get("roles") or [])
+            count += 1
+    return count
+
+
+def import_users(path: str) -> int:
+    """Load a directory file (``users:`` list) into the users table."""
+    import yaml
+
+    with open(path, encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return upsert_users(data.get("users", []))
 
 
 async def resolve_profile(user_id: str, settings: Settings) -> Profile:
     profile = _lookup_db(user_id, settings)
     if profile is not None:
         return profile
-    demo = _DEMO_USERS.get(user_id)
-    if demo is not None:
-        return Profile(user_id=user_id, **demo)
-    # Unknown user: least-privilege default (only public / `about` content).
-    return Profile(user_id=user_id, department=None, roles=["employee"])
+    return Profile(user_id=user_id, department=None, roles=list(_DEFAULT_ROLES))

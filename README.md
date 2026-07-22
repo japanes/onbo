@@ -6,7 +6,7 @@ Open-source onboarding assistant **for any software**. It accepts user requests 
 
 - **License:** MIT
 - **Language:** Python
-- **Status:** 🚧 early but functional — every layer is implemented, not just stubbed. Profile actions really execute over HTTP against your product's API, and a **bundled demo backend** lets you run them end-to-end without one. There's a **visual admin panel** at `/admin`, **seeded demo users**, and a **pytest suite**. Out of the box it uses OpenAI (one `OPENAI_API_KEY` covers chat and embeddings), but every model is swappable — including fully local ones. Classification survives an unreachable LLM (heuristic fallback), and voice **auto-falls back to CPU** if the GPU runtime is missing. RAG / channels / STT still need their optional dependencies and services (Qdrant, Postgres, Redis).
+- **Status:** 🚧 early but functional — every layer is implemented, not just stubbed. Profile actions really execute over HTTP against your product's API, and a **bundled demo backend** lets you run them end-to-end without one. There's a **visual admin panel** at `/admin` and a **pytest suite**. The knowledge base and the user directory start **empty** — no sample content to hunt down before going live. Out of the box it uses OpenAI (one `OPENAI_API_KEY` covers chat and embeddings), but every model is swappable — including fully local ones. Classification survives an unreachable LLM (heuristic fallback), and voice **auto-falls back to CPU** if the GPU runtime is missing. RAG / channels / STT still need their optional dependencies and services (Qdrant, Postgres, Redis).
 
 **Step-by-step guides:**
 [1 — install & configure](docs/HOWTO-1-setup.md) ·
@@ -148,7 +148,7 @@ onbo/
 ├── auth/         # user profile → access filter
 ├── generator/    # CLI scanner of a target project → draft actions.yaml
 ├── state/        # Postgres + Redis
-├── config/       # actions.yaml, seed_faq.yaml, settings.yaml
+├── config/       # actions.yaml, settings.yaml, *.example.yaml
 └── docs/         # flow.mmd, self/
 ```
 
@@ -170,11 +170,12 @@ onbo serve web                              # run the web channel + API
 onbo serve telegram                         # run the Telegram bot
 onbo kb add-doc ./handbook --collection support --roles support
 onbo kb add-qa "How do I reset my password?" "Settings → Security" --collection common
+onbo kb import ./faq.yaml                   # bulk import Q&A pairs (see config/kb.example.yaml)
 onbo kb reindex                             # rebuild the index from Postgres
-onbo kb seed                                # load the starter onboarding FAQ
-onbo kb import ./draft_faq.yaml             # import Q&A pairs from a seed-format file
+onbo kb status                              # what the knowledge base currently holds
 onbo about                                  # index the self-docs
-onbo users                                   # seed demo users (roles/departments) into Postgres
+onbo users add u42 --department accounting --roles accountant
+onbo users import ./users.yaml              # bulk import the directory (see config/users.example.yaml)
 onbo demo-backend                            # run the demo product backend on :18100
 onbo scan ./target-project                  # draft config/actions.yaml for another project
 onbo llm-export --out llm.json              # write the machine-readable manifest for static hosting
@@ -189,8 +190,26 @@ cp .env.example .env          # then put your OpenAI key in it
 docker compose up -d          # infra only: qdrant + postgres + redis
 
 ./run.sh about                # index the self-docs into the `about` collection
-./run.sh kb seed              # load the starter FAQ
 ./run.sh serve web            # run the web channel + API on http://localhost:18000
+```
+
+The knowledge base starts **empty** — onbo ships no sample content, so it never
+answers from someone else's FAQ. Fill it with yours:
+
+```bash
+cp config/kb.example.yaml faq.yaml    # then replace the examples with your answers
+./run.sh kb import ./faq.yaml
+./run.sh kb add-doc ./handbook.md --collection common   # a file, a directory or a URL
+./run.sh kb status                                      # check what landed
+```
+
+Who sees what comes from the user directory, which also starts empty — anyone not
+listed gets the least-privilege default (`roles: [employee]`, no department, public
+content only):
+
+```bash
+cp config/users.example.yaml users.yaml
+./run.sh users import ./users.yaml
 ```
 
 `run.sh` runs `onbo` from a project venv and points the dynamic linker at the CUDA
@@ -209,7 +228,7 @@ docker compose --profile app up
 ### See profile actions execute for real
 
 ```bash
-./run.sh users                             # seed demo users into Postgres
+./run.sh users add u42 --department accounting --roles accountant
 ./run.sh demo-backend                      # a stand-in product backend on :18100
 PRODUCT_API_BASE=http://localhost:18100 ./run.sh serve web
 # now "change my language to English" actually mutates the demo backend's state
@@ -236,14 +255,14 @@ The repository ships [Claude Code](https://claude.com/claude-code) skills under 
 
 ## Roadmap
 
-The first 12 items are implemented and hardened (profile actions over real HTTP with a demo backend, a visual admin panel, seeded demo users, and a pytest suite). A second wave (13–19) adds Claude Code skills, action pipelines, a machine-readable manifest, feature flags, and a proactive welcome — done.
+The first 12 items are implemented and hardened (profile actions over real HTTP with a demo backend, a visual admin panel, and a pytest suite). A second wave (13–19) adds Claude Code skills, action pipelines, a machine-readable manifest, feature flags, and a proactive welcome — done.
 
 1. ✅ Core skeleton (schemas, LLM wrapper, pipeline, config, docker-compose).
 2. ✅ State: Postgres + Redis.
 3. ✅ Classifier + router + aggregator (multi-action).
 4. ✅ Action registry + confirmations (chat / confirm / link).
 5. ✅ Knowledge base: model, sources, chunker, indexing.
-6. ✅ KB management: admin API + CLI + starter seed.
+6. ✅ KB management: admin API + CLI + bulk import.
 7. ✅ RAG search with the access filter and Q&A priority.
 8. ✅ Auth: profile (role/department).
 9. ✅ Self-documentation: `docs/self/`, the `about` collection, introspection.

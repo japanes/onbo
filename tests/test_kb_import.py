@@ -1,4 +1,4 @@
-"""`onbo kb import` / seed(path): load a seed_faq.yaml-shaped file into the KB.
+"""`onbo kb import`: load a YAML file with a `qa:` list into the KB.
 
 The actual indexing (embeddings + Qdrant/Postgres) is heavy and covered
 elsewhere; here we stub ``add_qa`` and assert seed() parses the file and threads
@@ -39,7 +39,7 @@ async def test_import_reads_file_and_threads_all_fields(tmp_path, monkeypatch):
 
     monkeypatch.setattr(admin, "add_qa", fake_add_qa)
 
-    n = await admin.seed(str(faq))
+    n = await admin.import_qa(str(faq))
 
     assert n == 2
     assert calls[0] == ("Q1", "A1", "common", None, None, None)
@@ -48,6 +48,10 @@ async def test_import_reads_file_and_threads_all_fields(tmp_path, monkeypatch):
     )
 
 
-async def test_import_missing_file_returns_zero(tmp_path):
+async def test_import_missing_file_raises(tmp_path):
+    """A typo in the path must be reported, not silently import nothing."""
+    import pytest
+
     admin = KnowledgeBaseAdmin(Settings())
-    assert await admin.seed(str(tmp_path / "nope.yaml")) == 0
+    with pytest.raises(FileNotFoundError):
+        await admin.import_qa(str(tmp_path / "nope.yaml"))

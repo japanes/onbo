@@ -29,7 +29,7 @@
 
 ### 2.1. Готовые Q&A из YAML-файла (основной способ)
 
-Файл вида `config/seed_faq.yaml`:
+Файл вида `config/kb.example.yaml` (его же удобно скопировать как заготовку):
 
 ```yaml
 qa:
@@ -146,7 +146,7 @@ docker compose exec app onbo kb add-qa \
 
 ```bash
 docker compose exec app onbo about        # переиндексировать самодокументацию («что я умею»)
-docker compose exec app onbo kb seed      # стартовый FAQ из config/seed_faq.yaml
+docker compose exec app onbo kb status    # сколько пар/документов сейчас в базе
 docker compose exec app onbo kb reindex   # пересобрать Qdrant из Postgres
 curl -s http://localhost:18000/admin/api/stats   # сколько всего коллекций/документов/пар
 ```

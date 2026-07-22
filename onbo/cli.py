@@ -7,6 +7,22 @@ import asyncio
 from . import __version__
 from .config import ConfigError, check_env_keys, load_settings
 
+# Shown whenever the knowledge base is empty. onbo ships no sample content: an
+# assistant answering from someone else's FAQ is worse than one that says it
+# doesn't know yet, and demo rows have to be hunted down before going live.
+_EMPTY_KB_HINT = """
+The knowledge base is empty — onbo will answer from the `about` self-docs only.
+Fill it with your own content:
+
+  onbo kb add-doc ./handbook.md --collection common     # a file, a directory or a URL
+  onbo kb add-qa "How do I get VPN access?" "Ask #it-help." --collection common
+  onbo kb import ./faq.yaml                             # bulk, see config/kb.example.yaml
+
+Tag content that is not for everyone with --department / --roles, and describe
+who is who with `onbo users add` (see config/users.example.yaml).
+The /admin panel does the same things in a browser.
+""".rstrip()
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="onbo", description="Open-source onboarding assistant")
@@ -38,12 +54,12 @@ def _build_parser() -> argparse.ArgumentParser:
     add_qa.add_argument("--roles", nargs="*", default=None)
 
     kb_sub.add_parser("reindex", help="Rebuild the Qdrant index from Postgres")
-    kb_sub.add_parser("seed", help="Load config/seed_faq.yaml")
+    kb_sub.add_parser("status", help="Show what the knowledge base currently holds")
 
-    kb_import = kb_sub.add_parser(
-        "import", help="Import Q&A pairs from a seed_faq.yaml-shaped file"
+    kb_import = kb_sub.add_parser("import", help="Import Q&A pairs from a YAML file")
+    kb_import.add_argument(
+        "path", help="YAML file with a top-level `qa:` list (see config/kb.example.yaml)"
     )
-    kb_import.add_argument("path", help="Path to a YAML file with a top-level `qa:` list")
 
     llm_export = sub.add_parser(
         "llm-export", help="Write the public llm.json manifest for static hosting"
@@ -52,12 +68,33 @@ def _build_parser() -> argparse.ArgumentParser:
 
     users = sub.add_parser("users", help="User directory management")
     users_sub = users.add_subparsers(dest="users_command", required=True)
-    users_sub.add_parser("seed", help="Upsert the demo users into Postgres")
+
+    users_add = users_sub.add_parser("add", help="Add or update one directory entry")
+    users_add.add_argument("user_id", help="Channel-facing id (Telegram id, web session user)")
+    users_add.add_argument("--department", default=None)
+    users_add.add_argument("--roles", nargs="*", default=None)
+
+    users_import = users_sub.add_parser("import", help="Import a directory from a YAML file")
+    users_import.add_argument(
+        "path", help="YAML file with a top-level `users:` list (see config/users.example.yaml)"
+    )
 
     demo = sub.add_parser("demo-backend", help="Run the bundled demo product backend")
     demo.add_argument("--port", type=int, default=18100)
 
     return parser
+
+
+def _warn_if_kb_empty(settings) -> None:
+    """Point at the KB commands on startup instead of silently serving nothing."""
+    from .kb.admin import KnowledgeBaseAdmin
+
+    try:
+        st = KnowledgeBaseAdmin(settings).stats()
+    except Exception:
+        return  # no Postgres yet: not this command's problem to report
+    if st["db"] and not st["qa"] and not st["documents"]:
+        print(_EMPTY_KB_HINT)
 
 
 async def _run(args: argparse.Namespace) -> None:
@@ -66,6 +103,7 @@ async def _run(args: argparse.Namespace) -> None:
     if args.command == "serve":
         from .core.pipeline import Pipeline
 
+        _warn_if_kb_empty(settings)
         pipeline = Pipeline(settings)
         if args.channel == "telegram":
             from .channels.telegram import TelegramChannel
@@ -97,15 +135,23 @@ async def _run(args: argparse.Namespace) -> None:
         elif args.kb_command == "add-qa":
             await admin.add_qa(args.question, args.answer, args.collection, args.department, args.roles)
             print("Q&A added.")
-        elif args.kb_command == "seed":
-            n = await admin.seed()
-            print(f"Seeded {n} Q&A pairs.")
         elif args.kb_command == "import":
-            n = await admin.seed(args.path)
+            try:
+                n = await admin.import_qa(args.path)
+            except FileNotFoundError:
+                raise SystemExit(f"onbo: no such file: {args.path}") from None
             print(f"Imported {n} Q&A pairs from {args.path}.")
         elif args.kb_command == "reindex":
             n = await admin.reindex()
             print(f"Reindexed {n} chunks.")
+        elif args.kb_command == "status":
+            st = admin.stats()
+            print(f"Postgres: {'connected' if st['db'] else 'unavailable'}")
+            print(f"Collections: {st['collections']}")
+            print(f"Documents:   {st['documents']}")
+            print(f"Q&A pairs:   {st['qa']}")
+            if not st["qa"] and not st["documents"]:
+                print(_EMPTY_KB_HINT)
 
     elif args.command == "llm-export":
         import json
@@ -119,11 +165,18 @@ async def _run(args: argparse.Namespace) -> None:
               f"{len(manifest['actions'])} actions, {len(manifest['pipelines'])} pipelines).")
 
     elif args.command == "users":
-        if args.users_command == "seed":
-            from .auth.profiles import seed_demo_users
+        from .auth.profiles import import_users, upsert_users
 
-            n = seed_demo_users(settings)
-            print(f"Seeded {n} demo users." if n else "No DB available; nothing seeded.")
+        if args.users_command == "add":
+            entry = {"user_id": args.user_id, "department": args.department, "roles": args.roles}
+            n = upsert_users([entry])
+            print(f"Saved {args.user_id}." if n else "No DB available; nothing saved.")
+        elif args.users_command == "import":
+            try:
+                n = import_users(args.path)
+            except FileNotFoundError:
+                raise SystemExit(f"onbo: no such file: {args.path}") from None
+            print(f"Imported {n} users from {args.path}." if n else "No DB available; nothing imported.")
 
 
 def main() -> None:

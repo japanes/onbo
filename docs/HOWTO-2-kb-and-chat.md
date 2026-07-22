@@ -31,7 +31,7 @@ A pair inherits the collection's tags unless it sets its own.
 
 ### 2.1. Ready-made Q&A from a YAML file (the main one)
 
-A file shaped like `config/seed_faq.yaml`:
+A file shaped like `config/kb.example.yaml` (copy it as a starting point):
 
 ```yaml
 qa:
@@ -150,7 +150,7 @@ section 3.
 
 ```bash
 docker compose exec app onbo about        # reindex the self-docs ("what can you do")
-docker compose exec app onbo kb seed      # starter FAQ from config/seed_faq.yaml
+docker compose exec app onbo kb status    # how many pairs/documents are in there
 docker compose exec app onbo kb reindex   # rebuild Qdrant from Postgres
 curl -s http://localhost:18000/admin/api/stats   # how many collections/documents/pairs
 ```

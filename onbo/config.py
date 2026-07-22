@@ -222,7 +222,7 @@ def check_env_keys() -> None:
 
 
 def config_dir() -> Path:
-    """Directory that holds settings.yaml / actions.yaml / seed_faq.yaml."""
+    """Directory that holds settings.yaml / actions.yaml and the *.example.yaml."""
     return Path(os.environ.get("ONBO_CONFIG_DIR", "config")).expanduser()
 
 

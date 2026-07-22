@@ -182,21 +182,17 @@ class KnowledgeBaseAdmin:
         await self._indexer.upsert_qa_chunk(question, chunk)
         return True
 
-    async def seed(self, path: str | None = None) -> int:
-        """Load Q&A pairs from a ``seed_faq.yaml``-shaped file (``qa:`` list).
+    async def import_qa(self, path: str) -> int:
+        """Load Q&A pairs from a YAML file with a top-level ``qa:`` list.
 
-        Without ``path`` it loads config/seed_faq.yaml so the KB isn't empty out
-        of the box; with a path it imports an arbitrary file (``onbo kb import``).
         Each item: ``{question, answer, collection?, department?, roles?, video_url?}``.
+        Idempotent by ``collection + question``, so re-importing an edited file
+        updates the existing pairs instead of duplicating them.
         """
         import yaml
 
-        from ..config import config_dir
-
-        if path is None:
-            path = os.path.join(config_dir(), "seed_faq.yaml")
         if not os.path.exists(path):
-            return 0
+            raise FileNotFoundError(path)
         with open(path, encoding="utf-8") as handle:
             data = yaml.safe_load(handle) or {}
         count = 0

@@ -1,0 +1,33 @@
+# Template for the knowledge base. Nothing here is loaded automatically — onbo
+# starts with an empty KB on purpose, so it never answers from sample content.
+#
+# Copy it, replace the examples with your own onboarding answers, then:
+#
+#   onbo kb import ./my_faq.yaml
+#
+# Import is idempotent by collection + question: edit the file, run it again,
+# and the existing pairs are updated instead of duplicated.
+#
+# Per item:
+#   question    what people actually ask, in their own words
+#   answer      what the assistant replies, verbatim
+#   collection  a bucket for related content (any name, created on first use)
+#   department  optional — only this department sees the pair
+#   roles       optional — only these roles see it. Omit both to show everyone.
+#   video_url   optional — a walkthrough clip shown alongside the answer
+
+qa:
+  - question: "How do I reset my password?"
+    answer: "Open Settings -> Security and press Change password."
+    collection: common
+
+  - question: "Who do I ask about access rights?"
+    answer: "Write to support in this same chat — the request is routed for you."
+    collection: common
+
+  # Restricted example: invisible to anyone outside accounting.
+  - question: "How do I issue a refund?"
+    answer: "Refunds go through accounting: attach the order number and the reason."
+    collection: accounting
+    department: accounting
+    roles: [accountant]
