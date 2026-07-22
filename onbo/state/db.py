@@ -61,6 +61,7 @@ def _load_all_models() -> None:
 _MIGRATIONS = (
     "ALTER TABLE app_user ADD COLUMN IF NOT EXISTS welcomed_at TIMESTAMPTZ",
     "ALTER TABLE kb_qa ADD COLUMN IF NOT EXISTS video_url VARCHAR(512)",
+    "ALTER TABLE kb_qa ADD COLUMN IF NOT EXISTS links JSON",
 )
 _migrated = False
 

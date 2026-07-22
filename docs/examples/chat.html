@@ -27,6 +27,7 @@
   .bot { text-align: left; }
   .sys { font-size: 13px; opacity: .6; text-align: center; }
   .card { border: 1px solid #8886; border-radius: 8px; padding: 8px; margin: 8px 0; }
+  .links a { display: inline-block; margin-right: 12px; }
   form { display: flex; gap: 8px; margin-top: 12px; }
   input, button { font: inherit; padding: 8px; border-radius: 8px; border: 1px solid #8886; background: transparent; color: inherit; }
   #text { flex: 1; }
@@ -93,8 +94,37 @@ async function post(path, body) {
   return res.json();
 }
 
+// A Q&A pair can carry deep links into the product. They arrive twice: as a
+// plain "Ссылки:" block inside the text, for clients that only print text, and
+// structured on each result. Having the structured ones, render real anchors and
+// drop the duplicated block.
+const LINKS_HEADING = 'Ссылки:';
+
+function stripLinkBlock(text) {
+  const at = text.lastIndexOf('\n\n' + LINKS_HEADING);
+  return at < 0 ? text : text.slice(0, at);
+}
+
+function addLinks(links) {
+  if (!links.length) return;
+  const box = document.createElement('div');
+  box.className = 'msg bot links';
+  for (const item of links) {
+    const anchor = document.createElement('a');
+    anchor.href = item.url;             // server-side content, rendered as a link
+    anchor.textContent = item.title;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    box.appendChild(anchor);
+  }
+  log.appendChild(box);
+  log.scrollTop = log.scrollHeight;
+}
+
 function render(data) {
-  add(data.text, 'bot');
+  const links = (data.results || []).flatMap((r) => r.links || []);
+  add(links.length ? stripLinkBlock(data.text) : data.text, 'bot');
+  addLinks(links);
   for (const r of data.results || []) {
     if (r.status === 'needs_confirm') addConfirm(r);
   }

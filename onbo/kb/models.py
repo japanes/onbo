@@ -48,6 +48,9 @@ try:
         answer: Mapped[str] = mapped_column(Text)
         # Optional walkthrough video attached to this pair (served from /media).
         video_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+        # Deep links into the product, appended to the answer as their own block:
+        # [{"title": "Мои проекты", "url": "https://app.acme.com/projects"}, ...]
+        links: Mapped[list | None] = mapped_column(JSON, nullable=True)
         department: Mapped[str | None] = mapped_column(String(64), nullable=True)
         roles: Mapped[list | None] = mapped_column(JSON, nullable=True)
 

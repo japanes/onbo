@@ -40,6 +40,8 @@ def build_admin_router(settings: Settings):
         department: str | None = None
         roles: list[str] = []
         video_url: str | None = None
+        # Bare URLs or {title, url} mappings; normalised on the way into the store.
+        links: list = []
 
     class QAUpdatePayload(BaseModel):
         # PATCH semantics: every field optional, only the ones sent are applied
@@ -50,6 +52,7 @@ def build_admin_router(settings: Settings):
         department: str | None = None
         roles: list[str] | None = None
         video_url: str | None = None
+        links: list | None = None
 
     @router.get("", response_class=HTMLResponse)
     async def page():
@@ -76,6 +79,7 @@ def build_admin_router(settings: Settings):
         n = await admin.add_qa(
             payload.question, payload.answer, payload.collection,
             payload.department or None, payload.roles or None, payload.video_url or None,
+            payload.links or None,
         )
         return {"indexed": n, "ok": True}
 
@@ -170,6 +174,8 @@ _ADMIN_HTML = """<!doctype html>
       </div>
       <label>Роли через запятую (пусто = всем)</label><input id="roles" placeholder="accountant, support">
       <label>Видео (URL, необязательно)</label><input id="vid" placeholder="/media/kb/xxx.mp4">
+      <label>Ссылки, по одной на строку: <code>Название | URL</code></label>
+      <textarea id="links" rows="2" placeholder="Мои проекты | https://app.acme.com/projects"></textarea>
       <div class="actions"><button onclick="addQA()">Добавить</button></div>
     </div>
   </div>
@@ -191,6 +197,7 @@ _ADMIN_HTML = """<!doctype html>
 const $ = s => document.querySelector(s);
 let TOK = localStorage.getItem('onbo_tok') || '';
 let QA_VIDEO = {};   // qa id -> current video_url, so editVideo needs no escaping
+let QA_LINKS = {};   // qa id -> "Название | URL" lines, same reason
 function saveTok(){ TOK = $('#token').value; localStorage.setItem('onbo_tok', TOK); }
 function esc(s){ return (s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
@@ -199,6 +206,15 @@ async function api(path, opts={}){
   const r = await fetch('/admin'+path, opts);
   if(!r.ok){ const e=await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.status); }
   return r.json();
+}
+// One "Название | URL" per line; `;` also separates, because the edit prompt()
+// below is a single-line field. A line without a pipe is taken as a bare URL.
+function parseLinks(text){
+  return (text||'').split(/[\n;]/).map(s=>s.trim()).filter(Boolean).map(line => {
+    const i = line.lastIndexOf('|');
+    const url = (i < 0 ? line : line.slice(i+1)).trim();
+    return { title: (i < 0 ? '' : line.slice(0,i).trim()) || url, url };
+  }).filter(l => l.url);
 }
 function accessTags(dep, roles){
   let h = dep ? `<span class="tag">${esc(dep)}</span>` : '<span class="tag pub">всем</span>';
@@ -212,11 +228,13 @@ async function refresh(){
   } catch(e){ $('#stat').textContent = 'ошибка: '+e.message; }
   try {
     const qa = await api('/api/qa'); $('#qacount').textContent = `(${qa.length})`;
-    QA_VIDEO = {};
+    QA_VIDEO = {}; QA_LINKS = {};
     $('#qatab').innerHTML = qa.length ? qa.map(r => { QA_VIDEO[r.id] = r.video_url || '';
+      QA_LINKS[r.id] = (r.links||[]).map(l => l.title+' | '+l.url).join('; ');
       return `<tr><td>${r.id}</td><td>${esc(r.collection)}</td><td>${accessTags(r.department, r.roles)}</td>
-       <td><b>${esc(r.question)}</b>${r.video_url?' 🎬':''}<br><span class="stat">${esc(r.answer)}</span></td>
+       <td><b>${esc(r.question)}</b>${r.video_url?' 🎬':''}${(r.links||[]).length?' 🔗'+r.links.length:''}<br><span class="stat">${esc(r.answer)}</span></td>
        <td><button class="ghost" onclick="editVideo(${r.id})">видео</button>
+           <button class="ghost" onclick="editLinks(${r.id})">ссылки</button>
            <button class="danger" onclick="delQA(${r.id})">удалить</button></td></tr>`; }).join('')
       : '<tr><td colspan="5" class="stat">пусто — добавьте первую пару в форме слева '
         + 'или импортируйте файл: onbo kb import ./faq.yaml (образец — config/kb.example.yaml)</td></tr>';
@@ -232,9 +250,9 @@ async function refresh(){
 async function addQA(){
   const body = { question:$('#q').value.trim(), answer:$('#a').value.trim(), collection:$('#col').value.trim()||'common',
     department:$('#dep').value.trim()||null, roles:$('#roles').value.split(',').map(s=>s.trim()).filter(Boolean),
-    video_url:$('#vid').value.trim()||null };
+    video_url:$('#vid').value.trim()||null, links:parseLinks($('#links').value) };
   if(!body.question||!body.answer){ toast('вопрос и ответ обязательны'); return; }
-  try { await api('/api/qa',{method:'POST',body:JSON.stringify(body)}); $('#q').value=''; $('#a').value=''; $('#vid').value='';
+  try { await api('/api/qa',{method:'POST',body:JSON.stringify(body)}); $('#q').value=''; $('#a').value=''; $('#vid').value=''; $('#links').value='';
     toast('добавлено'); refresh(); } catch(e){ toast(e.message); }
 }
 async function editVideo(id){
@@ -242,6 +260,12 @@ async function editVideo(id){
   if(url===null) return;
   try { await api('/api/qa/'+id,{method:'PATCH',body:JSON.stringify({video_url:url.trim()||null})});
     toast('видео обновлено'); refresh(); } catch(e){ toast(e.message); }
+}
+async function editLinks(id){
+  const text = prompt('Ссылки для Q&A #'+id+' в виде «Название | URL», несколько — через «;» (пусто — убрать):', QA_LINKS[id]||'');
+  if(text===null) return;
+  try { await api('/api/qa/'+id,{method:'PATCH',body:JSON.stringify({links:parseLinks(text)})});
+    toast('ссылки обновлены'); refresh(); } catch(e){ toast(e.message); }
 }
 async function delQA(id){ if(!confirm('Удалить Q&A #'+id+'?')) return;
   try { await api('/api/qa/'+id,{method:'DELETE'}); toast('удалено'); refresh(); } catch(e){ toast(e.message); } }

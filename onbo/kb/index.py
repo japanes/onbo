@@ -97,6 +97,7 @@ class Indexer:
         department: str | None = None,
         roles: list[str] | None = None,
         video_url: str | None = None,
+        links: list[dict] | None = None,
     ) -> int:
         # Embed the question, but store the answer as the retrievable text.
         chunk = Chunk(
@@ -108,6 +109,7 @@ class Indexer:
             roles=roles or [],
             collection=collection,
             video_url=video_url,
+            links=links or [],
         )
         vector = self._get_embedder().encode_one(question)
         await self._get_store().upsert([chunk], [vector])

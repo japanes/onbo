@@ -17,6 +17,7 @@ from ..config import Settings
 from ..rag.store import Chunk
 from ..state.db import db_available, init_db, session_scope
 from .index import Indexer
+from .links import normalize_links
 from .models import Collection, Document, QAPair
 from .sources.files import FileSource
 from .sources.website import WebsiteSource
@@ -105,10 +106,12 @@ class KnowledgeBaseAdmin:
         department: str | None = None,
         roles: list[str] | None = None,
         video_url: str | None = None,
+        links: list | None = None,
     ) -> int:
+        links = normalize_links(links)
         if not db_available():
             return await self._indexer.index_qa(
-                question, answer, collection, department, roles, video_url
+                question, answer, collection, department, roles, video_url, links
             )
 
         self._ensure_schema()
@@ -128,6 +131,7 @@ class KnowledgeBaseAdmin:
             row.department = department
             row.roles = roles
             row.video_url = video_url
+            row.links = links
             session.flush()
             dept, eff_roles = self._effective(department, roles, col)
             chunk = Chunk(
@@ -139,13 +143,14 @@ class KnowledgeBaseAdmin:
                 roles=eff_roles,
                 collection=collection,
                 video_url=video_url,
+                links=links,
             )
         return await self._indexer.upsert_qa_chunk(question, chunk)
 
     async def update_qa(self, qa_id: int, **fields) -> bool:
         """Patch any subset of a Q&A row, then re-upsert its ``qa:{id}`` point.
 
-        Accepts question / answer / collection / department / roles / video_url.
+        Accepts question / answer / collection / department / roles / video_url / links.
         Returns False if the row (or DB) is missing (the API maps that to 404).
         The stable point id makes the Qdrant re-index an idempotent upsert.
         """
@@ -162,7 +167,9 @@ class KnowledgeBaseAdmin:
                     session, fields["collection"], fields.get("department"), fields.get("roles")
                 )
                 row.collection_id = col.id
-            for key in ("question", "answer", "department", "roles", "video_url"):
+            if "links" in fields:
+                fields = {**fields, "links": normalize_links(fields["links"])}
+            for key in ("question", "answer", "department", "roles", "video_url", "links"):
                 if key in fields:
                     setattr(row, key, fields[key])
             session.flush()
@@ -178,6 +185,7 @@ class KnowledgeBaseAdmin:
                 roles=eff_roles,
                 collection=col.name,
                 video_url=row.video_url,
+                links=row.links or [],
             )
         await self._indexer.upsert_qa_chunk(question, chunk)
         return True
@@ -185,7 +193,8 @@ class KnowledgeBaseAdmin:
     async def import_qa(self, path: str) -> int:
         """Load Q&A pairs from a YAML file with a top-level ``qa:`` list.
 
-        Each item: ``{question, answer, collection?, department?, roles?, video_url?}``.
+        Each item: ``{question, answer, collection?, department?, roles?, video_url?,
+        links?}``. ``links`` is a list of ``{title, url}`` (or bare URL strings).
         Idempotent by ``collection + question``, so re-importing an edited file
         updates the existing pairs instead of duplicating them.
         """
@@ -204,6 +213,7 @@ class KnowledgeBaseAdmin:
                 item.get("department"),
                 item.get("roles"),
                 item.get("video_url"),
+                item.get("links"),
             )
         return count
 
@@ -242,6 +252,7 @@ class KnowledgeBaseAdmin:
                         roles=roles,
                         collection=col.name,
                         video_url=qa.video_url,
+                        links=qa.links or [],
                     ),
                 ))
 
@@ -303,6 +314,7 @@ class KnowledgeBaseAdmin:
                     "question": qa.question,
                     "answer": qa.answer,
                     "video_url": qa.video_url,
+                    "links": qa.links or [],
                     "department": qa.department if qa.department is not None else col.department,
                     "roles": qa.roles if qa.roles is not None else (col.roles or []),
                 }

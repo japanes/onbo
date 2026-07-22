@@ -52,6 +52,14 @@ def _build_parser() -> argparse.ArgumentParser:
     add_qa.add_argument("--collection", default="common")
     add_qa.add_argument("--department", default=None)
     add_qa.add_argument("--roles", nargs="*", default=None)
+    add_qa.add_argument(
+        "--link",
+        nargs="*",
+        default=None,
+        dest="links",
+        metavar="TITLE|URL",
+        help='Deep link shown under the answer, e.g. --link "Мои проекты|https://app.acme.com/projects"',
+    )
 
     kb_sub.add_parser("reindex", help="Rebuild the Qdrant index from Postgres")
     kb_sub.add_parser("status", help="Show what the knowledge base currently holds")
@@ -83,6 +91,16 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--port", type=int, default=18100)
 
     return parser
+
+
+def _parse_links(values: list[str] | None) -> list[dict]:
+    """Turn ``--link "Title|https://..."`` (or a bare URL) into link mappings."""
+    links = []
+    for value in values or []:
+        title, _, url = value.rpartition("|")
+        url = url.strip()
+        links.append({"title": title.strip() or url, "url": url})
+    return links
 
 
 def _warn_if_kb_empty(settings) -> None:
@@ -133,7 +151,10 @@ async def _run(args: argparse.Namespace) -> None:
             n = await admin.add_doc(args.path, args.collection, args.department, args.roles)
             print(f"Indexed {n} chunks into `{args.collection}`.")
         elif args.kb_command == "add-qa":
-            await admin.add_qa(args.question, args.answer, args.collection, args.department, args.roles)
+            await admin.add_qa(
+                args.question, args.answer, args.collection,
+                args.department, args.roles, links=_parse_links(args.links),
+            )
             print("Q&A added.")
         elif args.kb_command == "import":
             try:

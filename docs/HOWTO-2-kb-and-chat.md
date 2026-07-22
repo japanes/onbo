@@ -44,7 +44,18 @@ qa:
     department: accounting      # who sees it: department
     roles: [accountant]         # and/or roles
     video_url: /media/kb/refund.mp4   # optional walkthrough video
+    links:                            # optional — where to click, see below
+      - title: "Refunds"
+        url: "https://app.acme.com/orders/refunds"
 ```
+
+`links` is a field of the pair, like `question` or `roles` — not something you
+write inside the answer. Keep URLs out of `answer`: the text explains what to do,
+`links` says where to go. onbo appends the list at the bottom of the reply
+("Ссылки:") for plain clients, and hands it to the web channel as structured
+`results[].links`, so a widget can render real buttons (see
+[guide 3](HOWTO-3-embed-chat.md)). A pair with nothing to link to simply omits
+the field.
 
 Import (idempotent — re-importing updates pairs instead of duplicating them):
 

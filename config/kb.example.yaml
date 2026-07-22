@@ -15,11 +15,18 @@
 #   department  optional — only this department sees the pair
 #   roles       optional — only these roles see it. Omit both to show everyone.
 #   video_url   optional — a walkthrough clip shown alongside the answer
+#   links       optional — places in the product the answer sends people to.
+#               Each is `title` (as the section is called in the UI) + `url`.
+#               Keep URLs out of the answer text: onbo appends the list at the
+#               bottom of the reply, and a chat widget can draw them as buttons.
 
 qa:
   - question: "How do I reset my password?"
     answer: "Open Settings -> Security and press Change password."
     collection: common
+    links:
+      - title: "Security settings"
+        url: "https://app.example.com/settings/security"
 
   - question: "Who do I ask about access rights?"
     answer: "Write to support in this same chat — the request is routed for you."

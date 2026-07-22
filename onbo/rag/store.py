@@ -22,6 +22,8 @@ class Chunk(BaseModel):
     roles: list[str] = Field(default_factory=list)
     collection: str | None = None
     video_url: str | None = None  # optional walkthrough video for a Q&A pair
+    # Deep links carried alongside the answer: [{"title": ..., "url": ...}].
+    links: list[dict] = Field(default_factory=list)
 
 
 class Hit(BaseModel):
@@ -32,6 +34,7 @@ class Hit(BaseModel):
     score: float = 0.0
     is_qa: bool = False
     video_url: str | None = None
+    links: list[dict] = Field(default_factory=list)
 
 
 class AccessFilter(BaseModel):

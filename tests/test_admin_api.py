@@ -52,22 +52,25 @@ def test_api_is_open_when_token_unset(client, monkeypatch):
 # stub the KnowledgeBaseAdmin methods and assert the router wires them right.
 
 
-def test_post_qa_passes_video_url(client, monkeypatch):
+def test_post_qa_passes_video_url_and_links(client, monkeypatch):
     monkeypatch.delenv("ONBO_ADMIN_TOKEN", raising=False)
     seen = {}
 
-    async def fake_add_qa(self, question, answer, collection,
-                          department=None, roles=None, video_url=None):
-        seen.update(question=question, video_url=video_url, collection=collection)
+    async def fake_add_qa(self, question, answer, collection, department=None,
+                          roles=None, video_url=None, links=None):
+        seen.update(question=question, video_url=video_url, collection=collection,
+                    links=links)
         return 1
 
     monkeypatch.setattr(admin_mod.KnowledgeBaseAdmin, "add_qa", fake_add_qa)
     r = client.post("/admin/api/qa", json={
         "question": "Как добавить видео?", "answer": "Через админку.",
         "video_url": "/media/kb/1.mp4",
+        "links": [{"title": "Админка", "url": "https://app/admin"}],
     })
     assert r.status_code == 200 and r.json()["ok"] is True
     assert seen["video_url"] == "/media/kb/1.mp4"
+    assert seen["links"] == [{"title": "Админка", "url": "https://app/admin"}]
 
 
 def test_patch_qa_success_and_404(client, monkeypatch):

@@ -88,6 +88,7 @@ class QdrantStore(VectorStore):
                     score=point.score,
                     is_qa=payload.get("is_qa", False),
                     video_url=payload.get("video_url"),
+                    links=payload.get("links") or [],
                 )
             )
         # Curated Q&A first, then by score.
@@ -118,6 +119,7 @@ class QdrantStore(VectorStore):
                     "roles": chunk.roles,
                     "collection": chunk.collection,
                     "video_url": chunk.video_url,
+                    "links": chunk.links,
                 },
             )
             for chunk, vector in zip(chunks, vectors)

@@ -70,6 +70,17 @@ class ResultStatus(str, Enum):
     failed = "failed"               # not supported / error
 
 
+class Link(BaseModel):
+    """A place in the product the answer tells the reader to go.
+
+    Kept apart from the answer text so a channel can render it as it likes —
+    buttons in a widget, a list in Telegram — instead of parsing URLs out of prose.
+    """
+
+    title: str
+    url: str
+
+
 class ActionResult(BaseModel):
     status: ResultStatus
     action: str | None = None
@@ -77,6 +88,7 @@ class ActionResult(BaseModel):
     link_url: str | None = None
     confirm_prompt: str | None = None
     citations: list[str] = Field(default_factory=list)
+    links: list[Link] = Field(default_factory=list)
 
 
 class Response(BaseModel):

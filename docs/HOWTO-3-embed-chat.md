@@ -181,6 +181,13 @@ Notes that matter:
 welcome digest was prepended to `text`. Show `text` and, optionally, render
 cards for any result with `status: "needs_confirm"`.
 
+A result may also carry `links` — `[{"title": "My projects", "url": "…"}]`, the
+places in the product the answer points at (see
+[guide 2](HOWTO-2-kb-and-chat.md)). The same links are already appended to
+`text` as a plain block under a `Ссылки:` heading, so a client that only prints
+text loses nothing. If you render the structured ones as buttons, cut that block
+off the text first — `chat.html` shows how in a few lines.
+
 ---
 
 ## 4. The widget in the browser

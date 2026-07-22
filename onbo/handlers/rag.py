@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from ..config import Settings
-from ..core.schemas import ActionResult, Profile, ResultStatus
+from ..core.schemas import ActionResult, Link, Profile, ResultStatus
+from ..kb.links import normalize_links, render_links
 
 
 class RagHandler:
@@ -36,8 +37,18 @@ class RagHandler:
         message = top.text
         if getattr(top, "video_url", None):
             message += f"\n\nВидео-инструкция: {self._media_url(top.video_url)}"
+        # Links travel structured (a widget can draw buttons) *and* as a text block,
+        # so a channel that only prints `message` still shows where to click.
+        links = normalize_links(getattr(top, "links", None))
+        if links:
+            message += "\n\n" + render_links(links)
         citations = [h.source for h in hits if h.source]
-        return ActionResult(status=ResultStatus.answer, message=message, citations=citations)
+        return ActionResult(
+            status=ResultStatus.answer,
+            message=message,
+            citations=citations,
+            links=[Link(**link) for link in links],
+        )
 
     def _media_url(self, url: str) -> str:
         """Prefix a site-relative /media path with media.base_url (for non-web channels)."""
