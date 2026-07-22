@@ -352,12 +352,28 @@ onUnmounted(() => widget.destroy());
 </script>
 ```
 
+### 4.5. Nuxt 3 — the whole thing, as files
+
+`docs/examples/nuxt/` is a ready mode-A integration: four server routes (chat,
+confirm, welcome, voice), a plugin that shows the window to logged-in visitors,
+and a README saying what to copy. Exactly two things need editing: how to get
+the user out of your session, and where onbo lives.
+
+```bash
+cp -r docs/examples/nuxt/server docs/examples/nuxt/plugins ~/my-nuxt-app/
+cp docs/examples/onbo-widget.js ~/my-nuxt-app/public/
+```
+
+Details in [docs/examples/nuxt/README.md](examples/nuxt/README.md) (Russian).
+
+### 4.6. Other frameworks
+
 Angular, Svelte and the rest are the same shape: call `init()` when the
 component appears, `destroy()` when it goes away. If your bundler cannot import
 the file, load it with a `<script type="module">` tag and use
 `window.OnboWidget.init(...)`.
 
-### 4.5. Options
+### 4.7. Options
 
 | option | default | meaning |
 |---|---|---|
@@ -384,14 +400,14 @@ the file, load it with a `<script type="module">` tag and use
 "Help" link can do `widget.ask('How do I change my email?')`, which opens the
 panel and sends the question.
 
-### 4.6. Voice
+### 4.8. Voice
 
 Voice is `multipart/form-data`, so in mode A it needs a proxy route that
 forwards a file rather than JSON. In mode B point `voiceEndpoint` at onbo's
 `/voice` directly. Browsers only grant microphone access in a secure context:
 `localhost` counts, a remote host needs HTTPS.
 
-### 4.7. What comes back
+### 4.9. What comes back
 
 ```json
 {
