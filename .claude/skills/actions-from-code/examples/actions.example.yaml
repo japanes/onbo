@@ -1,0 +1,74 @@
+# Example output of /actions-from-code — a DRAFT for human review.
+# Do NOT overwrite config/actions.yaml with this; show a diff and confirm first.
+# Verify: ONBO_CONFIG_DIR=<this dir> load_action_specs() + load_pipeline_specs().
+#
+# No `handler:` is generated — the declarative `api:` block runs generically.
+# link actions carry only link_url + sensitive: true (never an `api:` block).
+
+actions:
+  set_language:                       # low risk -> execute immediately
+    description: "Сменить язык интерфейса"
+    mode: chat
+    params:
+      lang: { type: enum, values: [ru, en], required: true }
+    api:
+      method: POST
+      path: "/api/users/{user_id}/language"
+      body: { language: "{lang}" }
+      success_message: "Язык интерфейса переключён на «{lang}»."
+
+  change_email:                       # reversible-but-important -> confirm
+    description: "Сменить email"
+    mode: confirm
+    confirm_prompt: "Поменять email на {new_email}?"
+    params:
+      new_email: { type: email, required: true }
+    api:
+      method: POST
+      path: "/api/users/{user_id}/email"
+      body: { email: "{new_email}" }
+      success_message: "Email изменён на {new_email}."
+
+  change_password:                    # sensitive -> link only, no api block
+    description: "Сменить пароль"
+    mode: link
+    link_url: "https://app.example.com/settings/security"
+    sensitive: true
+
+  # -- pipeline steps (each usable standalone; chained below) --------------------
+  create_invoice_internal:
+    description: "Выставить накладную себе"
+    mode: chat
+    params:
+      order_id: { type: string, required: true }
+    api:
+      method: POST
+      path: "/api/orders/{order_id}/invoice"
+      body: { party: internal }
+      success_message: "Накладная себе по заказу {order_id} создана."
+
+  send_invoice_to_client:
+    description: "Отправить накладную клиенту"
+    mode: chat
+    params:
+      order_id: { type: string, required: true }
+    api:
+      method: POST
+      path: "/api/orders/{order_id}/send"
+      success_message: "Накладные по заказу {order_id} отправлены клиенту."
+
+# A step may only reference a chat/confirm action — never a sensitive (link) one.
+pipelines:
+  new_order:
+    description: "Оформить заказ: накладная себе и отправка клиенту"
+    mode: confirm
+    confirm_prompt: "Оформить заказ {order_id} и отправить накладную?"
+    roles: [accountant]
+    params:
+      order_id: { type: string, required: true }
+    steps:
+      - action: create_invoice_internal
+        params: { order_id: "{order_id}" }
+      - action: send_invoice_to_client
+        params: { order_id: "{order_id}" }
+    on_error: stop

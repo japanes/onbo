@@ -1,0 +1,29 @@
+[
+  {
+    "id": "001",
+    "route": "/admin",
+    "duration": 5,
+    "actions": [
+      { "type": "wait", "ms": 1200 },
+      { "type": "scroll", "dy": 300, "after": 1 }
+    ]
+  },
+  {
+    "id": "002",
+    "route": "/admin",
+    "duration": 6,
+    "actions": [
+      { "type": "click", "selector": "button:has-text('Добавить')", "after": 1 },
+      { "type": "fill", "selector": "textarea[name='question']", "text": "Как оформить отпуск?", "after": 1 },
+      { "type": "fill", "selector": "textarea[name='answer']", "text": "Подай заявку в HR-портале за 2 недели.", "after": 1 }
+    ]
+  },
+  {
+    "id": "003",
+    "route": "/admin",
+    "duration": 4,
+    "actions": [
+      { "type": "click", "selector": "button:has-text('Сохранить')", "after": 2 }
+    ]
+  }
+]

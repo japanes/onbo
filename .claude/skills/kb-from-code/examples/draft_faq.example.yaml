@@ -1,0 +1,36 @@
+# Example output of /kb-from-code — a DRAFT for human review (edit in /admin).
+# Import with: onbo kb import <this file>
+# Formulated in the USER's language: no API paths, methods, or code identifiers.
+
+qa:
+  - question: "Как сменить язык интерфейса?"
+    answer: "Напишите ассистенту «смени язык на английский» — язык переключится сразу."
+    collection: common
+
+  - question: "Как сбросить пароль?"
+    answer: "Откройте Настройки → Безопасность и нажмите «Сменить пароль»."
+    collection: common
+
+  - question: "Как изменить email в профиле?"
+    answer: "Напишите ассистенту «поменяй email на новый@адрес» — он переспросит и поменяет."
+    collection: common
+
+  - question: "Где посмотреть историю заказов?"
+    answer: "Раздел «Заказы» в левом меню.  # TODO: проверить путь в UI"
+    collection: common
+
+  # Behind a role guard in code (@requires_role("accountant")) -> audience set.
+  - question: "Как оформить возврат средств?"
+    answer: "Возвраты оформляет бухгалтерия: приложите номер заказа и причину."
+    collection: accounting
+    department: accounting
+    roles: [accountant]
+
+  # -- English variants for a multilingual site (culturally adapted, not literal) --
+  - question: "How do I change the interface language?"
+    answer: "Just tell the assistant “switch my language to Russian” — it changes right away."
+    collection: common
+
+  - question: "How do I reset my password?"
+    answer: "Go to Settings → Security and click “Change password”."
+    collection: common
