@@ -23,10 +23,22 @@ class ParamSpec(BaseModel):
 class ApiSpec(BaseModel):
     """How to call the target product's backend for this action.
 
-    ``path`` and string values in ``body``/``query`` are templated with
+    ``url``/``path`` and string values in ``body``/``query`` are templated with
     ``{user_id}`` (from the profile) and ``{param}`` (from the action entities).
+
+    Two ways to say where the request goes:
+
+    - ``url`` — a full, absolute address (``https://app.example.com/api/projects``).
+      Self-contained: this file alone says where every action lands, which is what
+      an installation with several backends — or no single "product base" at all —
+      needs. Preferred.
+    - ``path`` — relative, joined onto ``product.base_url`` from settings.yaml.
+      Kept for installations that do have one backend and would rather name it once.
+
+    ``url`` wins when both are present.
     """
     method: str = "POST"
+    url: str = ""
     path: str = ""
     body: dict = Field(default_factory=dict)
     query: dict = Field(default_factory=dict)

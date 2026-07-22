@@ -43,9 +43,10 @@ class ParamSpec:
     required: bool = False
     values: list[str] | None = None  # допустимые значения для enum
 
-class ApiSpec:                       # как звать бэкенд продукта (path/body/query
-    method: str = "POST"             # шаблонятся {user_id} и {param})
-    path: str = ""
+class ApiSpec:                       # как звать бэкенд продукта (url/path/body/
+    method: str = "POST"             # query шаблонятся {user_id} и {param})
+    url: str = ""                    # ПРЕДПОЧТИТЕЛЬНО: абсолютный адрес целиком
+    path: str = ""                   # относительный, клеится с product.base_url
     body: dict = {}
     query: dict = {}
     success_message: str | None = None
@@ -81,6 +82,11 @@ class PipelineSpec:
 
 Правила генерации:
 
+- **Пиши абсолютный `url:`, а не `path:`.** onbo ставят против произвольного,
+  заранее неизвестного API — файл действий должен сам, без внешних переменных
+  окружения, говорить, куда летит запрос. Хост бери из кода продукта (настройки,
+  `.env`, документация); если хост определить не удалось — оставь плейсхолдер
+  `https://CHANGEME/...` и скажи об этом юзеру явно в отчёте.
 - **`handler:` не генерировать.** Декларативного блока `api:` достаточно — onbo
   исполняет его через `GenericHTTPHandler` без Python. Кастомный `handler:` юзер
   добавит сам, если нужна особая валидация.

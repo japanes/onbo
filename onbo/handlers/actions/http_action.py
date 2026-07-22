@@ -39,7 +39,7 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
     description = getattr(spec, "description", "") or (name or "действие")
     ctx = {"user_id": profile.user_id, **entities}
 
-    if api is None or not api.path:
+    if api is None or not (api.url or api.path):
         # Nothing declared to call: treat as an unconfigured action, not a success.
         return ActionResult(
             status=ResultStatus.dry_run,
@@ -49,22 +49,29 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
 
     settings = load_settings()
     product = settings.product
-    path = _render(api.path, ctx)
     body = _render_map(api.body, ctx)
     query = _render_map(api.query, ctx)
     success = _render(api.success_message, ctx) if api.success_message else f"Готово: {description}."
 
-    if not product.base_url:
-        return ActionResult(
-            status=ResultStatus.dry_run,
-            action=name,
-            message=(
-                f"Демо-режим: «{description}» не выполнено по-настоящему "
-                f"(PRODUCT_API_BASE не задан). Вызвал бы {api.method} {path}."
-            ),
-        )
-
-    url = product.base_url.rstrip("/") + "/" + path.lstrip("/")
+    if api.url:
+        # Absolute address straight from actions.yaml: no product.base_url needed,
+        # so one install can drive several backends (or a product whose API lives
+        # on a host that has nothing to do with where onbo runs).
+        url = _render(api.url, ctx)
+    else:
+        path = _render(api.path, ctx)
+        if not product.base_url:
+            return ActionResult(
+                status=ResultStatus.dry_run,
+                action=name,
+                message=(
+                    f"Демо-режим: «{description}» не выполнено по-настоящему "
+                    f"(PRODUCT_API_BASE не задан, а в действии указан относительный "
+                    f"path — задайте абсолютный url в actions.yaml). "
+                    f"Вызвал бы {api.method} {path}."
+                ),
+            )
+        url = product.base_url.rstrip("/") + "/" + path.lstrip("/")
     headers = {}
     if product.api_key:
         headers[product.auth_header] = f"{product.auth_scheme or ''} {product.api_key}".strip()

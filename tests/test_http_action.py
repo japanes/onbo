@@ -85,6 +85,38 @@ async def test_real_call_success_templates_body_and_path(monkeypatch):
     assert call["json"] == {"language": "en"}
 
 
+async def test_absolute_url_needs_no_product_base(monkeypatch):
+    # The whole point of `url:` — onbo is installed against an unknown API, so the
+    # action file alone must be able to say where the request goes.
+    _patch_settings(monkeypatch, base_url="")
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    api = ApiSpec(
+        method="POST",
+        url="https://app.example.com/api/users/{user_id}/projects",
+        body={"name": "{name}"},
+    )
+    res = await http_action.call_product_api(_spec(api), PROFILE, {"name": "Арбуз"})
+    assert res.status == ResultStatus.done
+    call = _FakeClient.calls[0]
+    assert call["url"] == "https://app.example.com/api/users/acc1/projects"
+    assert call["json"] == {"name": "Арбуз"}
+
+
+async def test_absolute_url_wins_over_path(monkeypatch):
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    api = ApiSpec(url="https://elsewhere.example.com/v2/projects", path="/api/projects")
+    res = await http_action.call_product_api(_spec(api), PROFILE, {})
+    assert res.status == ResultStatus.done
+    assert _FakeClient.calls[0]["url"] == "https://elsewhere.example.com/v2/projects"
+
+
 async def test_real_call_backend_error_is_failed(monkeypatch):
     _patch_settings(monkeypatch, base_url="http://backend:9000")
     _FakeClient.calls = []
