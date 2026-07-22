@@ -1,5 +1,7 @@
 # How-to 1. Запустить и настроить onbo в своём проекте
 
+*[English](HOWTO-1-setup.md) · Русский*
+
 Про наполнение базы знаний, команды и чат — во втором файле:
 [HOWTO-2-kb-and-chat.ru.md](HOWTO-2-kb-and-chat.ru.md).
 
