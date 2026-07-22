@@ -173,15 +173,57 @@ curl -s -X POST http://localhost:18000/chat -H 'Content-Type: application/json' 
 
 ## 4. Эмбеддинги (поиск по базе знаний)
 
-Всегда локальные, через `fastembed`: ключи и внешние сервисы не нужны, данные
-компании никуда не уходят. По умолчанию `intfloat/multilingual-e5-large`
-(мультиязычная, 1024 измерения). Полегче:
+Модель эмбеддингов превращает текст в вектор, по векторам работает поиск. Это
+отдельный от чат-модели выбор — провайдеры могут быть разные.
+
+**Опенсорс у себя на машине (по умолчанию).** Работает через `fastembed`: ключи
+и внешние сервисы не нужны, данные компании никуда не уходят. По умолчанию
+`intfloat/multilingual-e5-large` (мультиязычная, 1024 измерения). Полегче:
 
 ```ini
 EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2   # 384d
 ```
 
-Сменили модель — размер вектора другой, индекс надо пересобрать:
+**Флагманская облачная модель.** Задаёте модель и ключ — провайдер определяется
+по строке модели, ровно как у чат-модели:
+
+| Провайдер | `EMBED_MODEL` | Размер вектора |
+|---|---|---|
+| OpenAI | `text-embedding-3-small` / `text-embedding-3-large` | 1536 / 3072 |
+| Google Gemini | `gemini/gemini-embedding-001` | 3072 |
+| Anthropic → Voyage AI | `voyage/voyage-3-large`, `voyage/voyage-3.5-lite` | 1024 |
+| Cohere, Mistral, Bedrock, Azure… | напр. `cohere/embed-multilingual-v3.0` | по провайдеру |
+
+```ini
+EMBED_MODEL=text-embedding-3-large
+EMBED_API_KEY=sk-...
+```
+
+Своих эмбеддингов у Anthropic нет, она рекомендует Voyage AI — поэтому в строке
+«Anthropic» стоит Voyage, ключ берётся на voyageai.com.
+
+Правило то же, что с чат-моделью: **`EMBED_API_BASE` — только для своего
+сервера** (vLLM, LM Studio, прокси), для облаков его не задают.
+
+`EMBED_PROVIDER=auto` (по умолчанию) сам понимает, локальная модель или
+облачная: имя без слэша (`text-embedding-3-small`) или известный префикс
+провайдера — значит API, а строка вида `org/model` — значит fastembed. Если имя
+ломает это правило, задайте явно `api` или `local` — например для открытой
+модели на своём vLLM:
+
+```ini
+EMBED_PROVIDER=api
+EMBED_MODEL=Qwen/Qwen3-Embedding-0.6B
+EMBED_API_BASE=http://host.docker.internal:8000/v1
+EMBED_API_KEY=not-needed
+```
+
+Чем платите: с облачной моделью текст базы знаний уходит провайдеру — один раз
+при индексации и по разу на каждый вопрос. Локальная не отправляет никуда
+ничего, но чуть хуже на редких формулировках. Качество влияет только на поиск:
+сам текст ответа — тот, который вы написали в базу.
+
+Любая смена модели меняет размер вектора, индекс надо пересобрать:
 
 ```bash
 docker compose exec app onbo kb reindex
@@ -276,5 +318,6 @@ FEATURE_RAG=true           # ответы из базы знаний
 | `localhost:18000` не открывается | `docker compose ps` — жив ли `app`; `bootstrap` должен завершиться успешно, `app` ждёт его |
 | Первый запрос очень долгий | Качаются веса эмбеддингов/whisper. Дальше они берутся из тома `modelcache` |
 | Поиск ничего не находит после смены `EMBED_MODEL` | `docker compose exec app onbo kb reindex` |
+| `AuthenticationError` при индексации или на вопросе | Облачная модель эмбеддингов без ключа или с чужим. Ключ отдельный на провайдера: `EMBED_API_KEY` ≠ `LLM_API_KEY` |
 | Порт занят | Хостовые порты сдвинуты на +10000 (15432/16333/16379); веб-порт меняется через `WEB_PORT` |
 | Хочется начать с чистого листа | `docker compose down -v && docker compose up -d` |

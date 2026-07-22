@@ -133,7 +133,7 @@ The `features:` block in `config/settings.yaml` is a master on/off switch per su
 
 ## Stack
 
-LiteLLM (provider-agnostic LLM) · Qdrant (vector DB) · multilingual-e5 via fastembed (embeddings) · Postgres + Redis (state) · faster-whisper (STT) · FastAPI + aiogram (channels) · Docker Compose.
+LiteLLM (provider-agnostic LLM) · Qdrant (vector DB) · embeddings local via fastembed or hosted via LiteLLM (OpenAI / Gemini / Voyage) · Postgres + Redis (state) · faster-whisper (STT) · FastAPI + aiogram (channels) · Docker Compose.
 
 ## Repository layout
 

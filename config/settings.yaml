@@ -13,7 +13,16 @@ llm:
   api_base: ${LLM_API_BASE:-}
 
 embeddings:
-  model: ${EMBED_MODEL:-intfloat/multilingual-e5-large}   # open-source multilingual embeddings (fastembed), 1024-dim
+  # Default: an open-source multilingual model running locally via fastembed
+  # (1024-dim, no API key, content never leaves the machine). For a hosted one
+  # set EMBED_MODEL + EMBED_API_KEY, e.g. text-embedding-3-large (OpenAI),
+  # gemini/gemini-embedding-001, voyage/voyage-3-large (Anthropic recommends
+  # Voyage — it has no embedding model of its own).
+  # Any model change changes the vector size: run `onbo kb reindex` after it.
+  model: ${EMBED_MODEL:-intfloat/multilingual-e5-large}
+  provider: ${EMBED_PROVIDER:-auto}    # auto (guess from the model string) | local | api
+  api_key: ${EMBED_API_KEY:-}
+  api_base: ${EMBED_API_BASE:-}        # only for a self-hosted OpenAI-compatible server
 
 qdrant:
   url: ${QDRANT_URL:-http://localhost:16333}

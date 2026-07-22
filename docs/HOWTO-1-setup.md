@@ -176,15 +176,61 @@ poorer.
 
 ## 4. Embeddings (knowledge-base search)
 
-Always local, via `fastembed`: no keys, no external service, company content
-never leaves the machine. The default is `intfloat/multilingual-e5-large`
-(multilingual, 1024 dimensions). A lighter one:
+An embedding model turns text into a vector; search compares vectors. It is a
+separate choice from the chat model — the two do not have to come from the same
+vendor.
+
+**Open-source, on your own machine (the default).** Runs through `fastembed`:
+no key, no external service, company content never leaves the machine. The
+default is `intfloat/multilingual-e5-large` (multilingual, 1024 dimensions). A
+lighter one:
 
 ```ini
 EMBED_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2   # 384d
 ```
 
-Changing the model changes the vector size, so rebuild the index:
+**A flagship hosted model.** Set the model plus a key — the vendor is picked
+from the model string, exactly like the chat model:
+
+| Vendor | `EMBED_MODEL` | Vector size |
+|---|---|---|
+| OpenAI | `text-embedding-3-small` / `text-embedding-3-large` | 1536 / 3072 |
+| Google Gemini | `gemini/gemini-embedding-001` | 3072 |
+| Anthropic → Voyage AI | `voyage/voyage-3-large`, `voyage/voyage-3.5-lite` | 1024 |
+| Cohere, Mistral, Bedrock, Azure… | e.g. `cohere/embed-multilingual-v3.0` | vendor-specific |
+
+```ini
+EMBED_MODEL=text-embedding-3-large
+EMBED_API_KEY=sk-...
+```
+
+Anthropic publishes no embedding model of its own and recommends Voyage AI, so
+that is the "Anthropic" line here; the key comes from voyageai.com.
+
+The same rule as for the chat model applies: **`EMBED_API_BASE` is only for a
+server of your own** (vLLM, LM Studio, a proxy) — leave it unset for hosted
+vendors.
+
+`EMBED_PROVIDER=auto` (the default) works out local-vs-hosted from the model
+string: a bare name (`text-embedding-3-small`) or a known vendor prefix means
+the API, anything shaped like a HuggingFace repo id means fastembed. Force it
+with `EMBED_PROVIDER=api` or `local` when your model name breaks that guess —
+for example an open-weight model served by your own vLLM:
+
+```ini
+EMBED_PROVIDER=api
+EMBED_MODEL=Qwen/Qwen3-Embedding-0.6B
+EMBED_API_BASE=http://host.docker.internal:8000/v1
+EMBED_API_KEY=not-needed
+```
+
+What you trade: with a hosted model, the knowledge-base text is sent to the
+vendor — once at indexing time and once per question. A local model sends
+nothing anywhere but is a little weaker on rare wording. Quality only matters
+for search: the answer text itself is whatever you wrote into the knowledge
+base.
+
+Any change here changes the vector size, so rebuild the index:
 
 ```bash
 docker compose exec app onbo kb reindex
@@ -280,5 +326,6 @@ For example, "commands only, no knowledge base" is `FEATURE_RAG=false`.
 | `localhost:18000` does not open | `docker compose ps` — is `app` alive? `bootstrap` must exit successfully; `app` waits for it |
 | The very first request takes ages | Embedding/whisper weights are downloading. Afterwards they come from the `modelcache` volume |
 | Search finds nothing after changing `EMBED_MODEL` | `docker compose exec app onbo kb reindex` |
+| `AuthenticationError` on indexing or on a question | A hosted embedding model with no/wrong `EMBED_API_KEY`. Note the key is per-vendor: the embedding key is separate from `LLM_API_KEY` |
 | Port already in use | Host ports are shifted by +10000 (15432/16333/16379); the web port is `WEB_PORT` |
 | You want a clean slate | `docker compose down -v && docker compose up -d` |

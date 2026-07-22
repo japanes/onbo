@@ -83,15 +83,68 @@ dozen pairs, not for real volume or an open network (see the backlog in
 
 ### 2.5. A draft knowledge base straight from the product's code (Claude Code)
 
-The repository ships skills:
+The fastest way to a first knowledge base: let Claude Code read your product's
+sources and write the Q&A itself. The repository ships three skills in
+`.claude/skills/` — they are picked up automatically when Claude Code is started
+**from the onbo repository root**:
 
-- `/kb-from-code <path to project>` — reads the sources and writes
-  `draft_faq.yaml` in human language (not API language). Review it, then
-  `onbo kb import`.
-- `/kb-video` — records a screen walkthrough of a UI flow and voices it over;
-  the result is an mp4 for `video_url`.
+| Skill | What it produces |
+|---|---|
+| `/kb-from-code` | a draft Q&A file for the knowledge base |
+| `/actions-from-code` | a draft `config/actions.yaml` (section 4) |
+| `/kb-video` | an mp4 walkthrough for a Q&A pair or a welcome digest |
 
-Always review the draft: the model invents details the product does not have.
+**Building the knowledge base, step by step:**
+
+1. Open Claude Code in the onbo directory and run the skill, giving it the path
+   to the product's sources:
+
+   ```
+   /kb-from-code ~/projects/acme-crm
+   ```
+
+   Optional extras it will otherwise assume: the language of the knowledge base
+   (Russian by default — say "in English" if that is what you need), the target
+   collection (`common` by default) and any additional languages for a
+   multilingual product.
+
+2. It surveys the repository in order of usefulness — README and docs, routes
+   and controllers, the settings/profile/onboarding screens, the i18n files
+   (the best source of the exact button and menu names), then templates — and
+   builds an inventory of features. It does not read the whole repository.
+
+3. It writes 15–40 pairs to
+   `tmp/kb-from-code/<project>/draft_faq.yaml`, in the language of a new hire,
+   not of an engineer: no API paths, no function or table names. Where a UI path
+   could not be confirmed it leaves a `# TODO: check the path in the UI`
+   comment. Role guards found in the code (`@requires_role("accountant")`,
+   `if user.is_staff`) become `department` / `roles` on the pair, so the
+   material stays visible only to the right people.
+
+4. It then reports what it produced — how many pairs, which sections they cover,
+   which ones are restricted, where the TODOs are. **Read the draft.** The model
+   infers details the product does not actually have, and this is the cheapest
+   possible moment to catch that.
+
+5. On your go-ahead it imports:
+
+   ```bash
+   onbo kb import tmp/kb-from-code/acme-crm/draft_faq.yaml
+   ```
+
+   If onbo is already running, the skill first checks `GET /admin/api/qa` and
+   skips questions that already exist. Import is idempotent on
+   `collection + question` anyway, so a re-run updates instead of duplicating.
+
+6. Open `/admin` and edit the wording where it reads wrong.
+
+Cases where it asks instead of guessing: an API-only product with no UI (it
+cannot write "Settings → …" without one), a product whose interface is not in
+Russian, and a monorepo (which service are we onboarding?).
+
+Videos are a separate step: `/kb-video` records a silent screen capture of one
+UI flow, voices it over, and attaches the resulting mp4 to the pair — see
+section 3.
 
 ### 2.6. Housekeeping
 

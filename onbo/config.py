@@ -73,7 +73,33 @@ class QdrantSettings(BaseModel):
 
 
 class EmbeddingSettings(BaseModel):
+    """Which model turns text into vectors, and where it runs.
+
+    ``provider``: "local" runs the model on this machine via fastembed, "api"
+    routes it through LiteLLM to a hosted vendor (OpenAI, Gemini, Voyage,
+    Cohere...), and "auto" infers it from the model string. Empty key/base ->
+    None, so LiteLLM can pick up OPENAI_API_KEY & co from the environment.
+    """
+
     model: str = "BAAI/bge-m3"
+    provider: str = "auto"
+    api_key: str | None = None
+    api_base: str | None = None
+
+    @field_validator("api_key", "api_base", mode="before")
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _known_provider(cls, value: object) -> str:
+        provider = str(value or "auto").strip().lower() or "auto"
+        if provider not in {"auto", "local", "api"}:
+            raise ValueError("embeddings.provider must be auto, local or api")
+        return provider
 
 
 class MediaSettings(BaseModel):

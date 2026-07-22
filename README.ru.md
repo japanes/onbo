@@ -133,7 +133,7 @@ pipelines:
 
 ## Стек
 
-LiteLLM (провайдер-агностик к LLM) · Qdrant (векторная БД) · multilingual-e5 через fastembed (эмбеддинги) · Postgres + Redis (состояние) · faster-whisper (STT) · FastAPI + aiogram (каналы) · Docker Compose.
+LiteLLM (провайдер-агностик к LLM) · Qdrant (векторная БД) · эмбеддинги локально через fastembed или облачные через LiteLLM (OpenAI / Gemini / Voyage) · Postgres + Redis (состояние) · faster-whisper (STT) · FastAPI + aiogram (каналы) · Docker Compose.
 
 ## Структура репозитория
 
