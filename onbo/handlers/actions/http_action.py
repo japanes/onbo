@@ -18,7 +18,7 @@ from ...core.schemas import ActionResult, Profile, ResultStatus
 from .base import ActionHandler
 
 
-def _render(value, ctx: dict):
+def render(value, ctx: dict):
     """Template a str with {user_id}/{param}; leave non-str values untouched."""
     if isinstance(value, str):
         try:
@@ -28,8 +28,46 @@ def _render(value, ctx: dict):
     return value
 
 
-def _render_map(mapping: dict, ctx: dict) -> dict:
-    return {key: _render(val, ctx) for key, val in (mapping or {}).items()}
+def render_map(mapping: dict, ctx: dict) -> dict:
+    return {key: render(val, ctx) for key, val in (mapping or {}).items()}
+
+
+def build_ctx(profile: Profile, entities: dict) -> dict:
+    """What a template may refer to, in order of increasing trust.
+
+    Values the model pulled out of the sentence, then values your backend signed
+    into the token, then the identity itself. Signed context wins over an
+    extracted entity of the same name on purpose — otherwise a sentence could
+    talk onbo into another workspace, or another person's id.
+    """
+    return {**entities, **getattr(profile, "context", {}), "user_id": profile.user_id}
+
+
+def product_headers(profile: Profile, ctx: dict, product) -> dict:
+    """Who the request is made as, and where it belongs.
+
+    The caller's own credential — carried in the signed token and never
+    persisted — wins over the shared service key: then the product applies its
+    normal per-user permissions and the assistant cannot reach anything the
+    person could not reach by hand. The static ``product.api_key`` stays as the
+    fallback for setups with no per-user credential (a backend that trusts onbo
+    wholesale, or the demo backend).
+
+    The configured context headers go on first: they say where the request
+    belongs, never who is making it — hence the credential is written after them
+    and always wins. A header still holding an unfilled placeholder is dropped:
+    sending a literal "{account_id}" is worse than sending nothing, because the
+    product would treat it as a real value.
+    """
+    headers = {}
+    for header, template in (product.headers or {}).items():
+        value = render(template, ctx)
+        if "{" not in value:
+            headers[header] = value
+    credential = getattr(profile, "product_token", None) or product.api_key
+    if credential:
+        headers[product.auth_header] = f"{product.auth_scheme or ''} {credential}".strip()
+    return headers
 
 
 async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResult:
@@ -37,12 +75,7 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
     api = getattr(spec, "api", None)
     name = getattr(spec, "name", None)
     description = getattr(spec, "description", "") or (name or "действие")
-    # What a template may refer to, in order of increasing trust: values the
-    # model pulled out of the sentence, then values your backend signed into the
-    # token, then the identity itself. Signed context wins over an extracted
-    # entity of the same name on purpose — otherwise a sentence could talk onbo
-    # into another workspace, or another person's id.
-    ctx = {**entities, **getattr(profile, "context", {}), "user_id": profile.user_id}
+    ctx = build_ctx(profile, entities)
 
     if api is None or not (api.url or api.path):
         # Nothing declared to call: treat as an unconfigured action, not a success.
@@ -54,17 +87,17 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
 
     settings = load_settings()
     product = settings.product
-    body = _render_map(api.body, ctx)
-    query = _render_map(api.query, ctx)
-    success = _render(api.success_message, ctx) if api.success_message else f"Готово: {description}."
+    body = render_map(api.body, ctx)
+    query = render_map(api.query, ctx)
+    success = render(api.success_message, ctx) if api.success_message else f"Готово: {description}."
 
     if api.url:
         # Absolute address straight from actions.yaml: no product.base_url needed,
         # so one install can drive several backends (or a product whose API lives
         # on a host that has nothing to do with where onbo runs).
-        url = _render(api.url, ctx)
+        url = render(api.url, ctx)
     else:
-        path = _render(api.path, ctx)
+        path = render(api.path, ctx)
         if not product.base_url:
             return ActionResult(
                 status=ResultStatus.dry_run,
@@ -77,26 +110,7 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
                 ),
             )
         url = product.base_url.rstrip("/") + "/" + path.lstrip("/")
-    # Who the request is made as. The caller's own credential — carried in the
-    # signed token and never persisted — wins over the shared service key: then
-    # the product applies its normal per-user permissions and the assistant
-    # cannot reach anything the person could not reach by hand. The static
-    # product.api_key stays as the fallback for setups with no per-user
-    # credential (a backend that trusts onbo wholesale, or the demo backend).
-    #
-    # The configured context headers go on first: they say where the request
-    # belongs, never who is making it — hence the credential is written after
-    # them and always wins. A header still holding an unfilled placeholder is
-    # dropped: sending a literal "{account_id}" is worse than sending nothing,
-    # because the product would treat it as a real value.
-    headers = {}
-    for header, template in (product.headers or {}).items():
-        value = _render(template, ctx)
-        if "{" not in value:
-            headers[header] = value
-    credential = getattr(profile, "product_token", None) or product.api_key
-    if credential:
-        headers[product.auth_header] = f"{product.auth_scheme or ''} {credential}".strip()
+    headers = product_headers(profile, ctx, product)
 
     try:
         import httpx

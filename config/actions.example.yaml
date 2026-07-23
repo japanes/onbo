@@ -62,6 +62,33 @@ actions:
       body: { party: internal }
       success_message: "Накладная себе по заказу {order_id} создана."
 
+  # A parameter whose values are a directory in your product, not a fixed list:
+  # the person says «инстаграм», the API wants the row id. `lookup:` says where
+  # to read the list — with this person's own credential, so they are only ever
+  # offered what they may see. One match is substituted, several are asked about,
+  # none shows what does exist, and «уточните: площадка» becomes the live list.
+  # `{platform_label}` holds the readable name, for the confirmation text.
+  create_post:
+    description: "Создать пост"
+    mode: confirm
+    confirm_prompt: "Создать пост в проекте #{project_id} на площадке {platform_label}?"
+    params:
+      project_id: { type: string, required: true, description: "в каком проекте" }
+      platform:
+        required: true
+        description: "площадка"
+        lookup:
+          path: "/api/projects/{project_id}/platforms"   # or an absolute url:
+          items: "data"      # where the list sits in the response ("" = the body)
+          value: "id"        # what the API is given
+          label: "name"      # what a person calls it
+          match: [code]      # other fields their wording may match
+    api:
+      method: POST
+      path: "/api/projects/{project_id}/posts"
+      body: { platform: "{platform}" }
+      success_message: "Пост на площадке {platform_label} создан."
+
   create_invoice_client:
     description: "Выставить накладную клиенту"
     mode: chat

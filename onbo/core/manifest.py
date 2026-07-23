@@ -25,6 +25,10 @@ def _param(spec) -> dict:
         out["values"] = list(spec.values)
     if spec.description:
         out["description"] = spec.description
+    if getattr(spec, "lookup", None):
+        # The allowed values are a live directory in the product, not a fixed
+        # list — an external agent has to be told that, or it will invent one.
+        out["from_directory"] = True
     return out
 
 

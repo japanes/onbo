@@ -87,7 +87,9 @@ class Pipeline:
         if spec is None:
             return None
         entities = dict(pending.get("entities") or {})
-        missing = missing_params(spec, entities)
+        # What the question was about, when it said so — otherwise the usual
+        # "required and still empty". See SessionStore.park_input.
+        missing = list(pending.get("wanted") or []) or missing_params(spec, entities)
         filled = (
             await self.classifier.fill(spec, missing, env.text, env.ts) if missing else {}
         )

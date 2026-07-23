@@ -60,6 +60,11 @@ class Classifier:
             notes.append("one of: " + ", ".join(param.values))
         elif param.type not in ("string", ""):
             notes.append(param.type)
+        if getattr(param, "lookup", None):
+            # The real value is a row id looked up afterwards (handlers/actions/
+            # lookup.py). Asked for an id it cannot know, a model invents one —
+            # so ask it for the person's own wording and resolve that.
+            notes.append("copy the user's own wording; it is looked up afterwards")
         suffix = f" [{'; '.join(notes)}]" if notes else ""
         meaning = f" — {param.description}" if param.description else ""
         return f"    {name}{suffix}{meaning}"
@@ -210,6 +215,14 @@ class Classifier:
         try:
             filled = await self._llm.structured([{"role": "user", "content": prompt}], _FilledParams)
         except Exception:  # noqa: BLE001 - no LLM configured, or unusable output
+            # Nothing to read the reply with. If the question was about a single
+            # directory-backed value («какая площадка?»), the reply is that value
+            # — and guessing costs nothing, because it is looked up in the real
+            # directory right after: a reply that is not an answer comes back as
+            # «такого значения нет» instead of reaching the product.
+            only = spec.params.get(missing[0]) if len(missing) == 1 else None
+            if getattr(only, "lookup", None) and 0 < len(stripped) <= 64 and "\n" not in stripped:
+                found[missing[0]] = stripped
             return found
         for name, value in drop_blank_entities(filled.values).items():
             if name not in missing:

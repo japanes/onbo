@@ -307,6 +307,48 @@ What the engine does on its own:
   you want, in the parameter's description:
   `description: "when to publish, as 2026-07-25T11:15"`.
 
+### Values that live in the product's own directory
+
+`values:` works for a list that is short and fixed (`ru`/`en`). Platforms,
+projects, warehouses and tariffs cannot be written down that way: a person says
+"instagram" while the endpoint wants `platform: 3` — the row id in your own
+table, different in every installation and changing without anyone editing
+`actions.yaml`. Such a parameter declares **where to read the list** instead:
+
+```yaml
+      platform:
+        required: true
+        description: "platform"
+        lookup:
+          path: "/api/projects/{project_id}/platforms"   # or an absolute url:
+          items: "data"      # where the list sits in the response ("" = the body)
+          value: "id"        # what the endpoint is given
+          label: "name"      # what a person calls it
+          match: [code]      # other fields their wording may match
+```
+
+From there the engine decides:
+
+- **one match** — the id is substituted, and `{platform_label}` holds the name,
+  so the confirmation reads "on Instagram" and not "on 3";
+- **several match** — it asks which one, listing them by name;
+- **nothing matches** — "no such value. There is: …", with the real list rather
+  than an invention;
+- **the parameter was never mentioned** — the question itself carries the list:
+  "Уточните: platform — Instagram, Telegram, Threads". Live data, never stale.
+
+Matching is forgiving: exact first, then "starts with", then "contains", and
+Cyrillic is compared against Latin («телеграм» finds `Telegram`). An exact hit is
+never turned into a question by a longer neighbour: `vk` is `vk` even when
+`vk-stories` sits next to it.
+
+The directory is fetched with **the asker's own credential** — the same one the
+action itself uses — so nobody is offered rows they could not see by hand. The
+address comes only from this file, never from the message. The response is cached
+for a minute, separately per address and per credential. A directory that depends
+on a parameter we do not know yet (`{project_id}` above) is not read at all: the
+project is asked for first.
+
 To draft a registry from the product's source:
 
 ```bash

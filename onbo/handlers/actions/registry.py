@@ -14,6 +14,46 @@ from ...config import config_file
 from ...core.schemas import ActionMode
 
 
+class LookupSpec(BaseModel):
+    """Where the real values of a parameter live, when they are a moving list.
+
+    ``values:`` covers a set that is fixed and short enough to write down (ru/uk/en).
+    It cannot cover a directory: people say «инстаграм» while the API wants the
+    row id 3, and that list is per installation, per workspace, and changes without
+    anyone touching this file. So the parameter says where to read it instead:
+
+    .. code-block:: yaml
+
+        platform:
+          required: true
+          description: "площадка"
+          lookup:
+            url: "https://app.example.com/api/platforms"
+            items: "data"        # where the list sits in the response (dot path)
+            value: "id"          # what the API is given
+            label: "name"        # what a person calls it, and what we show back
+            match: [code, slug]  # extra fields to compare against
+
+    The address comes from this file and never from the message — otherwise a
+    sentence could send onbo to any host on the network. It is fetched with the
+    asker's own credential, exactly like the action itself, so the list can only
+    ever contain what that person is allowed to see.
+    """
+
+    url: str = ""                  # absolute; wins over path
+    path: str = ""                 # relative to product.base_url
+    method: str = "GET"
+    query: dict = Field(default_factory=dict)   # templated like api.query
+    items: str = ""                # dot path to the list ("data", "result.rows")
+    value: str = "id"              # field whose value the API is given
+    label: str = "name"            # field a person says / reads
+    match: list[str] = Field(default_factory=list)  # extra fields to match on
+
+    def match_fields(self) -> list[str]:
+        """Every field a person's wording may be compared against."""
+        return [self.label, *self.match]
+
+
 class ParamSpec(BaseModel):
     """One value an action needs, and everything needed to obtain it.
 
@@ -28,6 +68,7 @@ class ParamSpec(BaseModel):
     required: bool = False
     values: list[str] | None = None  # allowed values for enum
     description: str = ""            # human words: what this is / what to ask for
+    lookup: LookupSpec | None = None  # values come from the product's own directory
 
     def label(self, name: str) -> str:
         """How this parameter is named to a person, e.g. «площадка (telegram, vk)»."""

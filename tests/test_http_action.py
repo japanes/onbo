@@ -244,6 +244,6 @@ def test_a_credential_never_leaks_into_logs_or_records():
 
 def test_render_leaves_unknown_placeholders_untouched():
     # A missing key must not crash — the raw template survives.
-    assert http_action._render("{missing}", {"user_id": "u1"}) == "{missing}"
-    assert http_action._render("hi {user_id}", {"user_id": "u1"}) == "hi u1"
-    assert http_action._render(42, {}) == 42
+    assert http_action.render("{missing}", {"user_id": "u1"}) == "{missing}"
+    assert http_action.render("hi {user_id}", {"user_id": "u1"}) == "hi u1"
+    assert http_action.render(42, {}) == 42

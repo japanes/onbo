@@ -60,10 +60,20 @@ class Session:
         # time, and a new request replaces the old one rather than queueing.
         return f"awaiting:{user_id}"
 
-    async def park_input(self, user_id: str, action: str, entities: dict) -> None:
-        """Remember an action that could not run yet for want of a parameter."""
+    async def park_input(
+        self, user_id: str, action: str, entities: dict, wanted: list[str] | None = None
+    ) -> None:
+        """Remember an action that could not run yet for want of a parameter.
+
+        ``wanted`` is what the person was actually asked about. It is usually
+        just "the required parameters that are still empty" and can be derived —
+        except when the value we have is present but unusable («инстаграм» where
+        the API needs a row id), which no re-derivation can tell from a filled-in
+        parameter. So the question says what it was about, and the reply is read
+        as an answer to that.
+        """
         key = self._input_key(user_id)
-        payload = {"action": action, "entities": entities}
+        payload = {"action": action, "entities": entities, "wanted": wanted or []}
         client = await self._client()
         if client is None:
             self._mem[key] = payload

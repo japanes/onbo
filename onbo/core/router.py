@@ -1,6 +1,7 @@
 """Route a single classified action to the right handler / mode."""
 from __future__ import annotations
 
+from ..handlers.actions.lookup import resolve_lookups
 from .schemas import (
     ActionMode,
     ActionResult,
@@ -71,6 +72,22 @@ class Router:
                 action=spec.name,
                 link_url=spec.link_url,
                 message=f"{spec.description}: откройте страницу по ссылке.",
+            )
+
+        # Words the product's own directories have to be consulted about
+        # («инстаграм» -> platform id 3) are resolved first: after this every
+        # value in `entities` is one the API will actually accept, so the checks
+        # below, the confirmation text and the call itself all see the same thing.
+        found = await resolve_lookups(spec, action.entities, profile)
+        action.entities = found.entities
+        if found.error:
+            return ActionResult(status=ResultStatus.failed, action=spec.name, message=found.error)
+        if found.question:
+            await self._session.park_input(
+                profile.user_id, spec.name, action.entities, [found.asked] if found.asked else None
+            )
+            return ActionResult(
+                status=ResultStatus.needs_input, action=spec.name, message=found.question
             )
 
         # Validate / slot-fill required params before doing anything else.

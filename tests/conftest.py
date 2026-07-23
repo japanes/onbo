@@ -24,8 +24,10 @@ class FakeSession:
     async def pop(self, user_id: str, action: str) -> dict | None:
         return self.parked.pop((user_id, action), None)
 
-    async def park_input(self, user_id: str, action: str, entities: dict) -> None:
-        self.awaiting[user_id] = {"action": action, "entities": entities}
+    async def park_input(
+        self, user_id: str, action: str, entities: dict, wanted: list[str] | None = None
+    ) -> None:
+        self.awaiting[user_id] = {"action": action, "entities": entities, "wanted": wanted or []}
 
     async def pop_input(self, user_id: str) -> dict | None:
         return self.awaiting.pop(user_id, None)

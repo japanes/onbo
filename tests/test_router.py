@@ -145,6 +145,8 @@ async def test_the_half_filled_action_is_parked_for_the_next_message(profile):
     assert session.awaiting[profile.user_id] == {
         "action": "create_post",
         "entities": {"topic_title": "про арбузы"},
+        # No named parameter: the reply is read against whatever is still empty.
+        "wanted": [],
     }
 
 

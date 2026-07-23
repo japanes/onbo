@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from ...core.schemas import ActionResult, Profile, ResultStatus
 from .base import ActionHandler
-from .http_action import _render_map
+from .http_action import render_map
 
 _OK_STATUSES = {ResultStatus.done, ResultStatus.dry_run}
 
@@ -46,7 +46,7 @@ class PipelineHandler(ActionHandler):
                     message=f"обработчик действия «{step.action}» не найден",
                 )
             else:
-                step_entities = _render_map(step.params, ctx)
+                step_entities = render_map(step.params, ctx)
                 try:
                     step_entities = await handler.validate(step_entities)
                     res = await handler.execute(profile, step_entities)
