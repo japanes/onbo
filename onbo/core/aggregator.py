@@ -1,7 +1,24 @@
 """Combine per-action results into a single user-facing response."""
 from __future__ import annotations
 
+from ..kb.links import render_links, strip_link_block
 from .schemas import ActionResult, Response, ResultStatus
+
+
+def _links_block(results: list[ActionResult]) -> str:
+    """Every link of the turn, once, as the plain-text block channels expect.
+
+    Links travel structured (`ActionResult.links`) so a channel can draw them as
+    buttons, and as one text block at the very end for channels that only print
+    text. Gathering them here — instead of leaving each answer to glue its own
+    copy in — means a client has exactly one block to strip, wherever the links
+    came from: a knowledge-base answer, or an action too sensitive to run in chat.
+    """
+    seen: dict[str, str] = {}
+    for result in results:
+        for link in result.links:
+            seen.setdefault(link.url, link.title)
+    return render_links([{"title": title, "url": url} for url, title in seen.items()])
 
 
 def aggregate(results: list[ActionResult]) -> Response:
@@ -24,7 +41,8 @@ def aggregate(results: list[ActionResult]) -> Response:
     failed = [r for r in results if r.status == ResultStatus.failed]
 
     for r in answers:
-        lines.append(r.message)
+        # Its own copy of the links goes; they come back once, at the end.
+        lines.append(strip_link_block(r.message))
 
     if dry:
         lines.append("Демо-режим (реальный бэкенд продукта не подключён):")
@@ -36,7 +54,10 @@ def aggregate(results: list[ActionResult]) -> Response:
 
     if links:
         lines.append("Откройте страницу (чувствительные данные меняются там):")
-        lines += [f"• {r.message} {r.link_url or ''}".rstrip() for r in links]
+        lines += [
+            f"• {r.message}" if r.links else f"• {r.message} {r.link_url or ''}".rstrip()
+            for r in links
+        ]
 
     if inputs:
         lines.append("Не хватает данных:")
@@ -46,4 +67,6 @@ def aggregate(results: list[ActionResult]) -> Response:
         lines.append("Не смог выполнить:")
         lines += [f"• {r.message}" for r in failed]
 
-    return Response(text="\n".join(lines), results=results)
+    text = "\n".join(lines)
+    block = _links_block(results)
+    return Response(text=f"{text}\n\n{block}" if block else text, results=results)

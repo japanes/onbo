@@ -1,6 +1,6 @@
 """What "now" is for the person asking, and how it is told to the model.
 
-A message like «создай пост на 25 июля на 11:15» carries no year, and «завтра»
+A message like «отгрузи заказ 25 июля в 11:15» carries no year, and «завтра»
 carries no date at all. The model can only turn those into a real timestamp if
 it is told what today is — and *today* is the asker's today, not the server's:
 at 23:30 in Kyiv a UTC server is still on the previous date.

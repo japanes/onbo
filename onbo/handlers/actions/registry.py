@@ -18,21 +18,22 @@ class LookupSpec(BaseModel):
     """Where the real values of a parameter live, when they are a moving list.
 
     ``values:`` covers a set that is fixed and short enough to write down (ru/uk/en).
-    It cannot cover a directory: people say «инстаграм» while the API wants the
-    row id 3, and that list is per installation, per workspace, and changes without
-    anyone touching this file. So the parameter says where to read it instead:
+    It cannot cover a directory: people say «со склада в Милане» while the API
+    wants the row id 3, and that list is per installation, per workspace, and
+    changes without anyone touching this file. So the parameter says where to
+    read it instead:
 
     .. code-block:: yaml
 
-        platform:
+        warehouse:
           required: true
-          description: "площадка"
+          description: "с какого склада"
           lookup:
-            url: "https://app.example.com/api/platforms"
+            url: "https://app.example.com/api/warehouses"
             items: "data"        # where the list sits in the response (dot path)
             value: "id"          # what the API is given
             label: "name"        # what a person calls it, and what we show back
-            match: [code, slug]  # extra fields to compare against
+            match: [code, city]  # extra fields to compare against
 
     The address comes from this file and never from the message — otherwise a
     sentence could send onbo to any host on the network. It is fetched with the
@@ -59,9 +60,9 @@ class ParamSpec(BaseModel):
 
     ``description`` is what the assistant is allowed to say out loud about this
     parameter — in the catalog the classifier reads ("extract *this*") and in the
-    question the user is asked when it is missing ("уточните: в каком проекте").
+    question the user is asked when it is missing ("уточните: с какого склада").
     Without it both fall back to the raw parameter name, which is fine for
-    ``new_email`` and useless for ``project_id``.
+    ``new_email`` and useless for ``warehouse_id``.
     """
 
     type: str = "string"           # string | email | enum | ...
@@ -71,7 +72,7 @@ class ParamSpec(BaseModel):
     lookup: LookupSpec | None = None  # values come from the product's own directory
 
     def label(self, name: str) -> str:
-        """How this parameter is named to a person, e.g. «площадка (telegram, vk)»."""
+        """How this parameter is named to a person, e.g. «язык (ru, en)»."""
         text = self.description or name
         if self.values:
             text = f"{text} ({', '.join(self.values)})"

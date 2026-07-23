@@ -7,6 +7,7 @@ from .schemas import (
     ActionResult,
     ActionType,
     ClassifiedAction,
+    Link,
     Profile,
     ResultStatus,
 )
@@ -67,11 +68,15 @@ class Router:
 
         # Sensitive data is never touched in chat — hand out a link and stop.
         if spec.sensitive or spec.mode == ActionMode.link:
+            # The address also travels as a link (schemas.Link), so a channel
+            # renders it the way it renders the links of a knowledge-base answer —
+            # a button — instead of leaving a bare URL sitting in the sentence.
             return ActionResult(
                 status=ResultStatus.link,
                 action=spec.name,
                 link_url=spec.link_url,
                 message=f"{spec.description}: откройте страницу по ссылке.",
+                links=[Link(title=spec.description, url=spec.link_url)] if spec.link_url else [],
             )
 
         # Words the product's own directories have to be consulted about

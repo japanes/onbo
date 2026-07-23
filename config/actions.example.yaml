@@ -4,7 +4,7 @@
 #
 # A param's `description:` is what the assistant is allowed to say about it: it
 # tells the model what to extract, and it is the question the user is asked when
-# the message did not say ("Чтобы «Создать пост», уточните: в каком проекте").
+# the message did not say ("Чтобы «Отгрузить заказ», уточните: номер заказа").
 # Skip it only where the name already reads as a question, like `new_email`.
 
 actions:
@@ -63,31 +63,31 @@ actions:
       success_message: "Накладная себе по заказу {order_id} создана."
 
   # A parameter whose values are a directory in your product, not a fixed list:
-  # the person says «инстаграм», the API wants the row id. `lookup:` says where
-  # to read the list — with this person's own credential, so they are only ever
-  # offered what they may see. One match is substituted, several are asked about,
-  # none shows what does exist, and «уточните: площадка» becomes the live list.
-  # `{platform_label}` holds the readable name, for the confirmation text.
-  create_post:
-    description: "Создать пост"
+  # the person says «со склада в Милане», the API wants the row id. `lookup:` says
+  # where to read the list — with this person's own credential, so they are only
+  # ever offered what they may see. One match is substituted, several are asked
+  # about, none shows what does exist, and «уточните: с какого склада» becomes the
+  # live list. `{warehouse_label}` holds the readable name, for the confirmation.
+  ship_order:
+    description: "Отгрузить заказ"
     mode: confirm
-    confirm_prompt: "Создать пост в проекте #{project_id} на площадке {platform_label}?"
+    confirm_prompt: "Отгрузить заказ #{order_id} со склада {warehouse_label}?"
     params:
-      project_id: { type: string, required: true, description: "в каком проекте" }
-      platform:
+      order_id: { type: string, required: true, description: "номер заказа" }
+      warehouse:
         required: true
-        description: "площадка"
+        description: "с какого склада"
         lookup:
-          path: "/api/projects/{project_id}/platforms"   # or an absolute url:
+          path: "/api/warehouses"   # or an absolute url:
           items: "data"      # where the list sits in the response ("" = the body)
           value: "id"        # what the API is given
           label: "name"      # what a person calls it
-          match: [code]      # other fields their wording may match
+          match: [code, city]  # other fields their wording may match
     api:
       method: POST
-      path: "/api/projects/{project_id}/posts"
-      body: { platform: "{platform}" }
-      success_message: "Пост на площадке {platform_label} создан."
+      path: "/api/orders/{order_id}/shipments"
+      body: { warehouse: "{warehouse}" }
+      success_message: "Заказ {order_id} отгружен со склада {warehouse_label}."
 
   create_invoice_client:
     description: "Выставить накладную клиенту"

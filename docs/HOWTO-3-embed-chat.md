@@ -535,10 +535,11 @@ enabled on the onbo side (`STT_MODEL`), or `/voice` politely asks for text.
 
 `welcomed: true` means this was the person's first message and the one-time
 welcome digest was prepended to `text`. `results[].links` are the places in the
-product the answer points at; the same links are also appended to `text` as a
-plain block under a `Ссылки:` heading, so a text-only client loses nothing. The
-widget renders the structured ones as buttons and cuts the duplicate block off
-the text — worth knowing if you write your own UI.
+product the answer points at — both the links of a knowledge-base answer and the
+page of an action too sensitive to run in chat. Every link of a turn is repeated
+in **one** block under a `Ссылки:` heading at the very end of `text`, so a
+text-only client loses nothing. The widget renders the structured ones as buttons
+and cuts the duplicate block off the text — worth knowing if you write your own UI.
 
 `docs/examples/chat.html` remains as a plain reference page (it types a
 `user_id` by hand, so it is a local demo, not something to embed). Serve it from

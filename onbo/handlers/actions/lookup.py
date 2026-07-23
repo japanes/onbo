@@ -1,7 +1,7 @@
 """Turning what a person says into what the product's API actually wants.
 
-A person says «инстаграм». The API wants ``platform: 3`` — the row id in the
-product's own table of platforms. That table is different in every installation,
+A person says «со склада в Милане». The API wants ``warehouse: 3`` — the row id
+in the product's own table. That table is different in every installation,
 different per workspace, and changes without anyone editing actions.yaml, so it
 cannot be written down as an ``enum``. A parameter therefore declares where to
 read it (``lookup:``, see registry.LookupSpec) and this module does the reading.
@@ -12,9 +12,9 @@ Three outcomes, and none of them is a guess:
 - several match -> we ask which one, listing them;
 - none match (or nothing was said at all) -> we ask, showing what does exist.
 
-That last part is the quiet win: the question stops being «уточните: площадка»
-and becomes «уточните: площадка (Instagram, Telegram, Threads)» — built from
-live data, so it is never out of date.
+That last part is the quiet win: the question stops being «уточните: склад» and
+becomes «уточните: склад — Milano, Milano Nord, Torino» — built from live data,
+so it is never out of date.
 
 The list is fetched with the caller's own credential, exactly like the action
 itself, so a person can only ever be offered what they are allowed to see.
@@ -29,7 +29,7 @@ from ...core.schemas import Profile
 from .http_action import build_ctx, product_headers, render, render_map
 
 # How long a fetched directory is reused, per address and per credential.
-# One question-and-answer («какая площадка?» — «инстаграм») would otherwise read
+# One question-and-answer («какой склад?» — «в Милане») would otherwise read
 # the same list twice within seconds; anything longer starts hiding a row that
 # was just created in the product.
 CACHE_TTL = 60.0
@@ -77,10 +77,10 @@ def _dig(payload, path: str):
     return payload
 
 
-# Directory rows are usually named in Latin («Instagram», «Telegram») while the
-# person types them in their own alphabet («инстаграм»). Both sides are put
-# through the same table before they are compared, so «телеграм» finds
-# «Telegram» — and a row named «Инстаграм» is still found by "instagram".
+# Directory rows are often named in Latin («Milano», «Torino») while the person
+# types them in their own alphabet («Милано»). Both sides are put through the
+# same table before they are compared, so «Милано» finds "Milano" — and a row
+# named «Милано» is still found by "milano".
 _TRANSLIT = {
     "а": "a", "б": "b", "в": "v", "г": "g", "ґ": "g", "д": "d", "е": "e", "ё": "e",
     "є": "e", "ж": "zh", "з": "z", "и": "i", "і": "i", "ї": "i", "й": "i", "к": "k",
@@ -108,8 +108,8 @@ def _label_of(row: dict, spec) -> str:
 def _matches(rows: list, spec, said: str) -> list:
     """Rows a person could have meant by ``said``, tightest interpretation first.
 
-    An exact hit is never diluted by the loose ones: «vk» must not become
-    ambiguous just because «vk-stories» also exists. Only when nothing matches
+    An exact hit is never diluted by the loose ones: "Milano" must not become
+    ambiguous just because "Milano Nord" also exists. Only when nothing matches
     exactly do we fall back to «starts with», then to «contains».
     """
     wanted = _norm(said)
@@ -194,8 +194,8 @@ async def resolve_lookups(spec, entities: dict, profile: Profile) -> Resolution:
             continue  # nothing said about an optional detail: leave it out
 
         ctx = build_ctx(profile, resolved)
-        # A directory that is scoped by another parameter («площадки этого
-        # проекта») cannot be read before that parameter is known. Skip it: the
+        # A directory that is scoped by another parameter («склады этого
+        # города») cannot be read before that parameter is known. Skip it: the
         # missing-parameter check right after this asks for the project first,
         # and on the next turn we come back here with it filled in.
         target = " ".join(
@@ -225,7 +225,7 @@ async def resolve_lookups(spec, entities: dict, profile: Profile) -> Resolution:
         if len(found) == 1:
             resolved[name] = str(found[0].get(lookup.value, ""))
             # The confirmation must show the word, not the row id: nobody can
-            # check «создать пост на площадке 3».
+            # check «отгрузить со склада 3».
             resolved[f"{name}_label"] = _label_of(found[0], lookup)
         elif not found:
             return Resolution.ask(

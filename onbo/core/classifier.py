@@ -216,7 +216,7 @@ class Classifier:
             filled = await self._llm.structured([{"role": "user", "content": prompt}], _FilledParams)
         except Exception:  # noqa: BLE001 - no LLM configured, or unusable output
             # Nothing to read the reply with. If the question was about a single
-            # directory-backed value («какая площадка?»), the reply is that value
+            # directory-backed value («с какого склада?»), the reply is that value
             # — and guessing costs nothing, because it is looked up in the real
             # directory right after: a reply that is not an answer comes back as
             # «такого значения нет» instead of reaching the product.

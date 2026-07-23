@@ -43,3 +43,14 @@ def render_links(links: list[dict]) -> str:
         return ""
     lines = [f"- {link['title']}: {link['url']}" for link in links]
     return f"{LINKS_HEADING}\n" + "\n".join(lines)
+
+
+def strip_link_block(text: str) -> str:
+    """The same answer without its trailing links block.
+
+    The block is a fallback for clients that only print text. When something
+    downstream renders the links itself — or gathers every link of a turn into
+    one block — the copy inside the answer is a duplicate, not information.
+    """
+    at = text.rfind(f"\n\n{LINKS_HEADING}")
+    return text if at < 0 else text[:at].rstrip()
