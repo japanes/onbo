@@ -70,6 +70,16 @@ export default defineEventHandler(async (event) => {
     // live only in your HTTP layer. Omit it if that matters more than per-user
     // actions do.
     product_token: event.context.token,
+
+    // Context the credential does not carry. onbo calls your API server-to-
+    // server, without the browser's cookies, so anything your routes read from
+    // a cookie — the active workspace here — silently falls back to a default,
+    // and the action lands somewhere the person was not looking. This route
+    // does see those cookies, so it can pass them on. Delete if your API needs
+    // no such context.
+    product_headers: {
+      Cookie: `active_account=${getCookie(event, 'active_account') || ''}`,
+    },
   }
 
   return { token: signToken(claims, secret) }

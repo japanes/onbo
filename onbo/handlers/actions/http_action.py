@@ -78,7 +78,11 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
     # cannot reach anything the person could not reach by hand. The static
     # product.api_key stays as the fallback for setups with no per-user
     # credential (a backend that trusts onbo wholesale, or the demo backend).
-    headers = {}
+    #
+    # The extra headers go on first: they carry the context the product needs
+    # (active workspace, tenant, locale) but must never be able to replace the
+    # credential — hence the credential is written after them.
+    headers = dict(getattr(profile, "product_headers", None) or {})
     credential = getattr(profile, "product_token", None) or product.api_key
     if credential:
         headers[product.auth_header] = f"{product.auth_scheme or ''} {credential}".strip()

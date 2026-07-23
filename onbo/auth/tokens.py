@@ -83,6 +83,10 @@ def profile_from_token(token: str, settings: Settings) -> Profile:
     API. Put it in and actions run as that person, with the product's usual
     permission checks intact; leave it out and actions fall back to the single
     ``product.api_key`` from settings.
+
+    Optional ``product_headers``: a small map of extra headers sent with every
+    action call — for context the credential does not carry, such as the active
+    workspace or tenant the person is looking at right now.
     """
     secret = settings.auth.jwt_secret
     if not secret:
@@ -98,11 +102,18 @@ def profile_from_token(token: str, settings: Settings) -> Profile:
         roles = [roles]
     department = claims.get("department") or claims.get("dept")
     product_token = claims.get("product_token")
+    raw_headers = claims.get("product_headers")
+    headers = (
+        {str(k): str(v) for k, v in raw_headers.items()}
+        if isinstance(raw_headers, dict)
+        else {}
+    )
     return Profile(
         user_id=user_id,
         department=str(department) if department else None,
         roles=[str(role) for role in roles],
         product_token=str(product_token) if product_token else None,
+        product_headers=headers,
     )
 
 
@@ -113,6 +124,7 @@ def sign_token(
     roles: list[str] | None = None,
     ttl: int = 300,
     product_token: str | None = None,
+    product_headers: dict[str, str] | None = None,
 ) -> str:
     """Issue a token — for tests and for `onbo token`, to try the flow by hand.
 
@@ -127,5 +139,7 @@ def sign_token(
         payload["roles"] = list(roles)
     if product_token:
         payload["product_token"] = product_token
+    if product_headers:
+        payload["product_headers"] = dict(product_headers)
     body = _b64url_encode(json.dumps(payload).encode())
     return f"{header}.{body}.{_b64url_encode(_sign(f'{header}.{body}', secret))}"

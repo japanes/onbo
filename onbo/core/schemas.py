@@ -42,6 +42,17 @@ class Profile(BaseModel):
     # profiles end up in logs and action records.
     product_token: str | None = Field(default=None, repr=False, exclude=True)
 
+    # Extra headers the product needs to answer the same way it answers the
+    # browser (claim ``product_headers``). A credential says *who* is asking;
+    # some products also need *in which context* — active workspace, tenant,
+    # locale — and keep that outside the credential, in a cookie or a header the
+    # browser sends. Without it the product silently picks a default context and
+    # the action lands in the wrong place. Signed by your backend, so the
+    # browser cannot inject headers of its own.
+    product_headers: dict[str, str] = Field(
+        default_factory=dict, repr=False, exclude=True
+    )
+
 
 class ActionType(str, Enum):
     profile_action = "profile_action"

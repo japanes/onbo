@@ -147,6 +147,21 @@ it ("if an `Authorization: Bearer …` header is present, take the token from
 there"), and it weakens nothing: whoever holds that token can already call the
 API directly.
 
+A key answers "who is asking". Many products need a second answer — "in what
+context": the active workspace, tenant, locale. That usually lives outside the
+key, in a cookie or a separate header the browser sends — and onbo calls you
+server-to-server, with no cookies, so the product quietly falls back to some
+default context. The action succeeds, just not where the person expected it. The
+second claim, `product_headers`, is for exactly that:
+
+```js
+{ sub: user.id, product_token: …, product_headers: { Cookie: `active_account=${accountId}` } }
+```
+
+onbo puts those headers on the outgoing request. They cannot be forged — they
+are inside the signature; they cannot replace `Authorization` — the credential
+is written last.
+
 Leave the claim out and onbo falls back to the single key in its own settings
 (`PRODUCT_API_KEY`) — every action then runs as that one service user.
 

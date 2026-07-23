@@ -75,6 +75,18 @@ def test_no_credential_claim_means_no_credential():
     assert profile_from_token(sign_token("u1", SECRET), _settings()).product_token is None
 
 
+def test_roundtrip_carries_the_context_headers():
+    # Who is asking is not always enough: many products also keep *where* they
+    # are asking from — active workspace, tenant — outside the credential.
+    token = sign_token("u1", SECRET, product_headers={"Cookie": "active_account=1"})
+    profile = profile_from_token(token, _settings())
+    assert profile.product_headers == {"Cookie": "active_account=1"}
+
+
+def test_context_headers_default_to_none_at_all():
+    assert profile_from_token(sign_token("u1", SECRET), _settings()).product_headers == {}
+
+
 def test_a_different_secret_is_not_trusted():
     token = sign_token("u1", "other-secret")
     with pytest.raises(TokenError, match="подпись"):

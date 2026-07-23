@@ -159,6 +159,36 @@ async def test_service_key_is_the_fallback_without_one(monkeypatch):
     assert _FakeClient.calls[0]["headers"]["Authorization"] == "Bearer service-key"
 
 
+async def test_context_headers_ride_along_with_the_request(monkeypatch):
+    # Without them the product answers in whatever context it defaults to — the
+    # action then lands in the wrong workspace and looks like it did nothing.
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    profile = Profile(user_id="acc1", product_headers={"Cookie": "active_account=1"})
+    res = await http_action.call_product_api(_spec(ApiSpec(path="/api/projects")), profile, {})
+    assert res.status == ResultStatus.done
+    assert _FakeClient.calls[0]["headers"]["Cookie"] == "active_account=1"
+
+
+async def test_context_headers_cannot_replace_the_credential(monkeypatch):
+    """Otherwise the context claim becomes a way to act as someone else."""
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    profile = Profile(
+        user_id="acc1",
+        product_token="the-users-own-key",
+        product_headers={"Authorization": "Bearer somebody-elses-key"},
+    )
+    await http_action.call_product_api(_spec(ApiSpec(path="/api/projects")), profile, {})
+    assert _FakeClient.calls[0]["headers"]["Authorization"] == "Bearer the-users-own-key"
+
+
 def test_a_credential_never_leaks_into_logs_or_records():
     """It ends up in reprs and dumps otherwise — both routinely get written down."""
     profile = Profile(user_id="acc1", product_token="the-users-own-key")
