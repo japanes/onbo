@@ -140,6 +140,13 @@ cannot do more than they could do by hand, so you never have to restate your
 permission model inside onbo. The key is not stored anywhere: it lives in memory
 for the duration of the request and reaches neither logs nor action records.
 
+One condition: your API has to accept that key **in a header**. Plenty of web
+apps authenticate by session cookie only — a request from onbo carries no cookie
+and gets a 401 no matter how valid the key is. One line in your auth layer fixes
+it ("if an `Authorization: Bearer …` header is present, take the token from
+there"), and it weakens nothing: whoever holds that token can already call the
+API directly.
+
 Leave the claim out and onbo falls back to the single key in its own settings
 (`PRODUCT_API_KEY`) — every action then runs as that one service user.
 
