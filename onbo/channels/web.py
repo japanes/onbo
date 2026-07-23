@@ -73,7 +73,12 @@ class WebChannel(Channel):
                 ts: str = Body(None),
             ):
                 user_id, profile = self._identify(user_id, token)
-                # Prepend the one-time welcome on the user's first message.
+                # Prepend the one-time welcome on the user's first message. It is
+                # awaited before the real answer, so it has to be cheap: it is a
+                # fixed three-line text and touches no model and no database
+                # unless `welcome.smooth` is on. Turning that flag on puts one
+                # LLM round trip in front of the first answer — deliberately, and
+                # only for that first message.
                 greeting = await self.pipeline.maybe_welcome(user_id, profile)
                 response = await self.handle_text(user_id, text, locale, profile, ts)
                 results = (greeting.results if greeting else []) + response.results

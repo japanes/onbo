@@ -7,9 +7,12 @@ from ..kb.links import normalize_links, render_links
 
 
 class RagHandler:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, retriever=None) -> None:
         self._settings = settings
-        self._retriever = None  # lazily built (heavy: embeddings + Qdrant)
+        # Lazily built (heavy: embeddings + Qdrant) unless the caller shares its
+        # own — the classifier searches the same index for commands, and two
+        # retrievers would mean two embedding models loaded for one process.
+        self._retriever = retriever
 
     def _get_retriever(self):
         if self._retriever is None:

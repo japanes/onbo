@@ -69,6 +69,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "path", help="YAML file with a top-level `qa:` list (see config/kb.example.yaml)"
     )
 
+    actions = sub.add_parser("actions", help="Command catalogue (actions.yaml)")
+    actions_sub = actions.add_subparsers(dest="actions_command", required=True)
+    actions_sub.add_parser(
+        "reindex", help="Rebuild the searchable command index in Qdrant from actions.yaml"
+    )
+    actions_sub.add_parser("status", help="Show whether the command index matches actions.yaml")
+
     llm_export = sub.add_parser(
         "llm-export", help="Write the public llm.json manifest for static hosting"
     )
@@ -135,6 +142,9 @@ async def _run(args: argparse.Namespace) -> None:
 
         _warn_if_kb_empty(settings)
         pipeline = Pipeline(settings)
+        indexed = await pipeline.ensure_action_index()
+        if indexed:
+            print(f"actions.yaml changed: reindexed {indexed} commands.")
         if args.channel == "telegram":
             from .channels.telegram import TelegramChannel
 
@@ -185,6 +195,30 @@ async def _run(args: argparse.Namespace) -> None:
             print(f"Q&A pairs:   {st['qa']}")
             if not st["qa"] and not st["documents"]:
                 print(_EMPTY_KB_HINT)
+
+    elif args.command == "actions":
+        from .handlers.actions.index import fingerprint, reindex_actions
+        from .handlers.actions.registry import load_action_specs, load_pipeline_specs
+        from .rag.qdrant_store import QdrantStore
+        from .rag.store import ACTION
+
+        plain = load_action_specs()
+        specs = {**plain, **load_pipeline_specs(plain)}
+        if args.actions_command == "reindex":
+            n = await reindex_actions(settings, specs)
+            print(f"Indexed {n} commands. The classifier now searches them instead "
+                  f"of reading the whole catalogue.")
+        elif args.actions_command == "status":
+            stored = await QdrantStore(settings).payload_sample(ACTION)
+            current = fingerprint(specs)
+            print(f"actions.yaml: {len(specs)} commands (fingerprint {current})")
+            if stored is None:
+                print("Index:        empty — run `onbo actions reindex`.")
+            elif stored.get("fingerprint") == current:
+                print("Index:        up to date.")
+            else:
+                print(f"Index:        stale (fingerprint {stored.get('fingerprint')}) — "
+                      f"run `onbo actions reindex`.")
 
     elif args.command == "llm-export":
         import json

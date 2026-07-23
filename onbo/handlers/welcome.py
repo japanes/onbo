@@ -1,35 +1,37 @@
-"""Proactive welcome: a first-contact digest tailored to the user's access.
+"""Proactive welcome: three lines on first contact, and nothing else.
 
-On a user's first message (or an explicit ``/welcome``) the assistant introduces
-what *this* user can do — actions and pipelines visible to their role/department
-(same access rule as the KB), the knowledge they can ask about, and an optional
-role starter video. The raw facts are optionally smoothed by the LLM; with no
-model reachable it falls back to the plain template, so the welcome always works.
+On a user's first message (or an explicit ``/welcome``) the assistant says who
+it is and invites the person to write what they need — plus an optional starter
+video for their role. What *this* user may do is a separate question, answered
+on request by :mod:`onbo.handlers.about`.
+
+That split is the whole point of this file. The greeting used to enumerate every
+visible action, load the knowledge base to sample it, and then hand the whole
+wall to the LLM asking it to rewrite it *preserving every fact* — so the model
+had to regenerate forty lines before the person saw a word, on the one message
+where waiting is most visible. Now the greeting reads nothing and, by default,
+calls no model at all (``welcome.smooth``).
 """
 from __future__ import annotations
 
 from ..config import Settings
 from ..core.llm import LLM
-from ..core.schemas import ActionMode, ActionResult, Profile, ResultStatus
-from .about import _MODE_HINT
-from .actions.registry import spec_visible_to
+from ..core.schemas import ActionResult, Profile, ResultStatus
 from .media import media_url
 
-# Present immediate actions first, then confirmed ones, then sensitive links.
-_MODE_ORDER = (ActionMode.chat, ActionMode.confirm, ActionMode.link)
+# The greeting itself. Fixed text, on purpose: it is read once, it must appear
+# instantly, and the third line is what makes the short version sufficient —
+# the full list is one question away.
+_GREETING = (
+    "Привет! Я ассистент онбординга — помогу освоиться и возьму на себя рутину.",
+    "Напишите своими словами, что нужно: отвечу на вопрос или сделаю сам.",
+    "Спросите «что ты умеешь» — покажу список того, что доступно вам.",
+)
 
 
 class WelcomeHandler:
-    def __init__(
-        self,
-        settings: Settings,
-        specs: dict,
-        kb_admin,
-        llm: LLM | None = None,
-    ) -> None:
+    def __init__(self, settings: Settings, llm: LLM | None = None) -> None:
         self._settings = settings
-        self._specs = specs        # merged actions + pipelines (shared namespace)
-        self._kb = kb_admin
         self._llm = llm
 
     async def answer(self, profile: Profile) -> ActionResult:
@@ -38,66 +40,13 @@ class WelcomeHandler:
         override = self._text_override(profile)
         if override is not None:
             body = override
+        elif self._settings.welcome.smooth:
+            body = await self._smooth(list(_GREETING))
         else:
-            facts = self._facts(profile)
-            body = await self._smooth(facts)
+            body = "\n".join(_GREETING)
 
         message = f"{body}\n\n{video_line}" if video_line else body
         return ActionResult(status=ResultStatus.answer, message=message)
-
-    # -- digest assembly ------------------------------------------------------
-
-    def _facts(self, profile: Profile) -> list[str]:
-        dept = profile.department or "без отдела"
-        roles = ", ".join(profile.roles) or "—"
-        lines = [
-            "Привет! Я ассистент онбординга — помогу освоиться и возьму на себя рутину.",
-            f"По нашим данным вы из отдела «{dept}», роли: {roles}. "
-            "Показываю только то, что доступно именно вам.",
-        ]
-
-        actions = self._actions_block(profile)
-        if actions:
-            lines += ["", "Что можно сделать прямо здесь:", *actions]
-
-        kb = self._kb_block(profile)
-        if kb:
-            lines += ["", "О чём можно спросить:", *kb]
-
-        lines += ["", "Просто напишите, что нужно — я подскажу или сделаю."]
-        return lines
-
-    def _actions_block(self, profile: Profile) -> list[str]:
-        """Actions and pipelines visible to the user, ordered by mode."""
-        visible = [s for s in self._specs.values() if spec_visible_to(s, profile)]
-        out: list[str] = []
-        for mode in _MODE_ORDER:
-            for spec in (s for s in visible if s.mode == mode):
-                out.append(f"• {spec.description or spec.name} — {_MODE_HINT[mode]}")
-        return out
-
-    def _kb_block(self, profile: Profile) -> list[str]:
-        """Accessible KB sections + a few sample questions (empty without a DB)."""
-        try:
-            qa = self._kb.list_qa()
-        except Exception:
-            qa = []
-        visible = [q for q in qa if self._qa_visible(q, profile)]
-        if not visible:
-            return []
-        collections = sorted({q["collection"] for q in visible})
-        out = [f"Доступные разделы базы знаний: {', '.join(collections)}."]
-        out += [f"  — {q['question']}" for q in visible[:5]]
-        return out
-
-    @staticmethod
-    def _qa_visible(qa: dict, profile: Profile) -> bool:
-        # Same rule as spec_visible_to / the KB access filter, on a list_qa() row.
-        department = qa.get("department")
-        roles = qa.get("roles") or []
-        dept_ok = department is None or department == profile.department
-        roles_ok = not roles or bool(set(roles) & set(profile.roles or []))
-        return dept_ok and roles_ok
 
     def _video_line(self, profile: Profile) -> str:
         key = self._audience_key(self._settings.welcome.video, profile)
@@ -122,7 +71,11 @@ class WelcomeHandler:
         return None
 
     async def _smooth(self, facts: list[str]) -> str:
-        """Rewrite the raw facts warmly via the LLM; plain template if unavailable."""
+        """Rewrite the greeting warmly via the LLM; plain template if unavailable.
+
+        Off by default. Three lines are cheap to rewrite — but they are also
+        already short and already friendly, so this buys wording, not content.
+        """
         plain = "\n".join(facts)
         if self._llm is None:
             return plain
@@ -131,10 +84,10 @@ class WelcomeHandler:
                 "role": "system",
                 "content": (
                     "Ты — дружелюбный ассистент онбординга. Перепиши приветствие для "
-                    "нового сотрудника: тепло, живо и коротко, простыми словами. "
-                    "СОХРАНИ все факты, названия действий и разделов без изменений, "
-                    "ничего не выдумывай и не добавляй ссылок. Ответь только текстом "
-                    "приветствия на русском."
+                    "нового сотрудника: тепло, живо и коротко, простыми словами, "
+                    "не длиннее трёх предложений. СОХРАНИ приглашение написать, что "
+                    "нужно, и подсказку спросить «что ты умеешь». Ничего не выдумывай "
+                    "и не добавляй ссылок. Ответь только текстом приветствия на русском."
                 ),
             },
             {"role": "user", "content": plain},

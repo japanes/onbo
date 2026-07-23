@@ -1,8 +1,9 @@
-"""Proactive welcome: access-filtered digest + fire-once first contact.
+"""Proactive welcome: a short offline greeting + fire-once first contact.
 
-Everything runs offline: no LLM (template fallback), no Postgres/Redis (an
-in-memory welcome-session fake and a forced db-less path), so we assert the
-visibility rule, the digest shape and the one-shot behaviour with no backend.
+Everything runs offline: no LLM, no Postgres/Redis (an in-memory welcome-session
+fake and a forced db-less path), so we assert the visibility rule, the greeting
+shape and the one-shot behaviour with no backend. The command list itself is
+`about`'s job now and is tested in test_about.py.
 """
 from __future__ import annotations
 
@@ -33,52 +34,36 @@ def test_spec_visible_to_department_and_roles():
     assert not spec_visible_to(ActionSpec(name="cfg", roles=["admin"]), acc)   # role gate
 
 
-# -- digest assembly ---------------------------------------------------------
+# -- the greeting itself -----------------------------------------------------
 
 
-class _FakeKB:
-    def __init__(self, qa=None) -> None:
-        self._qa = qa or []
+class _SpyLLM:
+    """An LLM that must not be called; records it if it is."""
 
-    def list_qa(self, collection=None):
-        return self._qa
+    def __init__(self) -> None:
+        self.calls: list[list] = []
 
-
-def _specs() -> dict:
-    return {
-        "make_invoice": ActionSpec(
-            name="make_invoice", description="Выставить счёт", department="accounting"
-        ),
-        "ship_order": ActionSpec(
-            name="ship_order", description="Отгрузить заказ", department="warehouse"
-        ),
-        "read_docs": ActionSpec(name="read_docs", description="Открыть справку"),  # public
-    }
+    async def complete(self, messages, **kwargs):
+        self.calls.append(messages)
+        return "переписанное приветствие"
 
 
-async def test_digest_lists_only_visible_actions_without_llm():
-    handler = WelcomeHandler(Settings(), _specs(), _FakeKB(), llm=None)
-    res = await handler.answer(_accountant())
+async def test_greeting_is_short_and_never_calls_the_llm_by_default():
+    llm = _SpyLLM()
+    res = await WelcomeHandler(Settings(), llm).answer(_accountant())
     assert res.status == ResultStatus.answer
-    assert "Выставить счёт" in res.message        # own department -> shown
-    assert "Открыть справку" in res.message         # public -> shown
-    assert "Отгрузить заказ" not in res.message     # foreign department -> hidden
+    assert llm.calls == []                               # smooth is off by default
+    assert "ассистент онбординга" in res.message.lower()
+    assert "что ты умеешь" in res.message                # points at the command list
+    assert len(res.message.splitlines()) <= 4            # short: 3 lines, video aside
 
 
-async def test_digest_kb_block_filters_by_access():
-    qa = [
-        {"collection": "common", "question": "Как оформить отпуск?", "answer": "…",
-         "department": None, "roles": []},
-        {"collection": "acc", "question": "Где реестр счетов?", "answer": "…",
-         "department": "accounting", "roles": []},
-        {"collection": "wh", "question": "Как принять поставку?", "answer": "…",
-         "department": "warehouse", "roles": []},
-    ]
-    handler = WelcomeHandler(Settings(), {}, _FakeKB(qa), llm=None)
-    res = await handler.answer(_accountant())
-    assert "Как оформить отпуск?" in res.message       # public
-    assert "Где реестр счетов?" in res.message          # own department
-    assert "Как принять поставку?" not in res.message   # foreign department
+async def test_greeting_is_smoothed_only_when_flag_is_on():
+    llm = _SpyLLM()
+    settings = Settings(welcome=WelcomeSettings(smooth=True))
+    res = await WelcomeHandler(settings, llm).answer(_accountant())
+    assert len(llm.calls) == 1
+    assert res.message == "переписанное приветствие"
 
 
 async def test_video_line_uses_media_base_url():
@@ -86,7 +71,7 @@ async def test_video_line_uses_media_base_url():
         media={"dir": "media", "base_url": "https://app.example.com"},
         welcome=WelcomeSettings(video={"accounting": "/media/welcome/acc.mp4"}),
     )
-    res = await WelcomeHandler(settings, {}, _FakeKB(), llm=None).answer(_accountant())
+    res = await WelcomeHandler(settings, llm=None).answer(_accountant())
     assert "Видео-знакомство: https://app.example.com/media/welcome/acc.mp4" in res.message
 
 
@@ -97,9 +82,9 @@ async def test_text_override_replaces_body_but_keeps_video():
             video={"accountant": "/media/welcome/acc.mp4"},
         ),
     )
-    res = await WelcomeHandler(settings, _specs(), _FakeKB(), llm=None).answer(_accountant())
+    res = await WelcomeHandler(settings, llm=None).answer(_accountant())
     assert res.message.startswith("Добро пожаловать в бухгалтерию!")
-    assert "Выставить счёт" not in res.message               # override drops the digest
+    assert "что ты умеешь" not in res.message                # override replaces the text
     assert "Видео-знакомство: /media/welcome/acc.mp4" in res.message
 
 

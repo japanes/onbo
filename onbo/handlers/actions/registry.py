@@ -105,8 +105,21 @@ class ApiSpec(BaseModel):
 
 
 class ActionSpec(BaseModel):
+    """One command: what it is, how it runs, and how it is found.
+
+    ``description`` is the short line a person reads — in «что ты умеешь» and in
+    the confirmation — so it stays short. ``keywords`` and ``examples`` are the
+    opposite: the wordings people actually use («снеси проект», «убери пост»).
+    They go into the search index and never into the prompt, because their job is
+    to get this command *into* the shortlist, not to take up room once it is
+    there. A three-word description embeds poorly on its own; a handful of real
+    phrasings is what makes it findable.
+    """
+
     name: str
     description: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
     mode: ActionMode = ActionMode.chat
     sensitive: bool = False
     link_url: str | None = None
@@ -157,6 +170,8 @@ class PipelineSpec(BaseModel):
     """
     name: str
     description: str = ""
+    keywords: list[str] = Field(default_factory=list)   # see ActionSpec: index, not prompt
+    examples: list[str] = Field(default_factory=list)
     mode: ActionMode = ActionMode.confirm      # chat | confirm (link is forbidden below)
     confirm_prompt: str | None = None
     params: dict[str, ParamSpec] = Field(default_factory=dict)

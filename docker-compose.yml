@@ -53,17 +53,19 @@ services:
       timeout: 3s
       retries: 20
 
-  # One-shot bootstrap: create the schema and index the self-docs into the
-  # `about` collection, so the assistant can at least explain itself. No sample
-  # FAQ and no demo users — the knowledge base and the user directory start
-  # empty and are yours to fill (`onbo kb import`, `onbo users import`).
+  # One-shot bootstrap: create the schema, index the self-docs into the `about`
+  # collection so the assistant can at least explain itself, and embed the
+  # command catalogue so the classifier can search it instead of reading all of
+  # actions.yaml on every message. No sample FAQ and no demo users — the
+  # knowledge base and the user directory start empty and are yours to fill
+  # (`onbo kb import`, `onbo users import`).
   # Idempotent, so it is safe on every `up`. `app` waits for it to finish.
   bootstrap:
     build:
       context: .
       target: base
     command: >
-      sh -c "onbo about"
+      sh -c "onbo about && onbo actions reindex"
     restart: "no"
     environment: &onbo_env
       QDRANT_URL: http://qdrant:6333

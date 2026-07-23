@@ -359,33 +359,81 @@ docker compose exec app onbo scan /path/to/your/project    # prints a YAML draft
 or the `/actions-from-code <path>` skill in Claude Code. Always proofread the
 draft: generation touches passwords and personal data.
 
+### Being found: `keywords` and `examples`
+
+The command catalogue is not pasted into every prompt. It is embedded into
+Qdrant once and **searched per message**, so only the dozen commands that sound
+like what was asked reach the model. Forty commands in a prompt cost money on
+every «привет» and make the model choose worse.
+
+That means each command has to be *findable*, and a three-word `description`
+often is not. Two optional lists fix it — they go into the index and never into
+the prompt, so they cost nothing at answer time:
+
+```yaml
+  delete_project:
+    description: "Delete a project"
+    keywords: [снести, убрать, удалить проект, delete project]
+    examples:
+      - "удали проект «телефон»"
+      - "снеси Арбуз"
+```
+
+Write down what people actually type, including slang and the other language
+your team uses. `onbo scan` and `/actions-from-code` fill both in for you.
+
+How many commands one message may show is `actions.shortlist_size` (default 12).
+If your catalogue is smaller than that, the whole thing is sent as before and
+none of this matters.
+
 After editing `config/actions.yaml`:
 
 ```bash
 docker compose restart app
 ```
 
-## 5. The welcome digest for a new hire
+The restart notices that the file changed and re-embeds the catalogue by itself
+(a fingerprint of the file is stored alongside the index). To check or to do it
+by hand — useful when several workers share one Qdrant:
 
-On the first message (or on an explicit call) the assistant sends a digest of
-what is available to that particular role. Configured in
+```bash
+docker compose exec app onbo actions status     # up to date / stale / empty
+docker compose exec app onbo actions reindex
+```
+
+Set `actions.autoindex: false` to leave indexing entirely to those commands. If
+the index is missing or Qdrant is down, nothing breaks: the whole catalogue is
+sent in the prompt, exactly as it used to be — slower and dearer, still correct.
+
+## 5. The greeting for a new hire
+
+On the first message (or on an explicit call) the assistant says hello in three
+lines: who it is, «write what you need», and «ask “что ты умеешь”». Configured in
 `config/settings.yaml`:
 
 ```yaml
 welcome:
   enabled: true
+  smooth: false        # true = let the LLM reword those three lines
   video:
     accounting: /media/welcome/accounting.mp4   # starter video per department or role
   text_overrides:
     support: "Hi! Start with the «Handling tickets» section."
 ```
 
-The digest is **generated from what actually exists**, not written by hand: the
-commands in `config/actions.yaml` that this person is allowed to run, plus the
-knowledge-base collections they can see and a few sample questions from them. The
-model only smooths the wording; it is not asked to invent features.
+It is short on purpose. The greeting used to list every command and then ask the
+model to rewrite the whole wall — which is why a first contact took ten seconds
+before the person saw a word. Now it reads nothing and, with `smooth: false`,
+calls no model at all.
 
-So if the greeting mentions commands you do not have, they are in
+The catalogue moved to an explicit question. **«что ты умеешь»** (or «список
+команд») answers with the commands from `config/actions.yaml` that this person is
+allowed to run, grouped by what happens when you ask — immediately, after your
+confirmation, or as a link — plus the knowledge-base sections they can see. It is
+**generated from what actually exists**, without an LLM, so it is never out of
+date and never invents a feature.
+
+So if that list mentions commands you do not have, they are in
 `config/actions.yaml`. The file ships with demo entries — clear them out when you
 start on your own product:
 
@@ -396,12 +444,12 @@ pipelines: {}
 
 ```bash
 docker compose restart app
-# the digest is shown once per person, so clear the mark to see it again:
+# the greeting is shown once per person, so clear the mark to see it again:
 docker compose exec postgres psql -U onbo -d onbo -c "UPDATE app_user SET welcomed_at = NULL;"
 ```
 
-`text_overrides` replaces the generated text entirely for a department or role,
-and `features.welcome: false` switches the whole thing off.
+`text_overrides` replaces the greeting entirely for a department or role, and
+`features.welcome: false` switches the whole thing off.
 
 Check it:
 

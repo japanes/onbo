@@ -16,8 +16,15 @@ _HINT_FILES = ("routes", "urls", "api", "settings", "views", "controllers")
 
 _PROMPT = """You are drafting an onboarding assistant action registry.
 Given source-code excerpts from a target product, propose a YAML `actions:`
-mapping. For each action set: description, mode (chat|confirm|link), params, and
-handler path. Rules:
+mapping. For each action set: description, keywords, examples, mode
+(chat|confirm|link), params, and handler path. Rules:
+- `description:` is one short line a person reads in the confirmation and in the
+  «what can you do» list. Keep it short.
+- `keywords:` and `examples:` are never shown and never sent to the model — they
+  are indexed so the command can be *found* by a vector search over what people
+  actually type. Give 3-8 keywords (synonyms, slang, the English and the local
+  wording) and 2-3 whole example phrases per action. A command with only a
+  three-word description is the one that never gets found.
 - Every param gets `description:` in plain words — it is what the assistant says
   when it has to ask the user for that value ("which project", "platform").
   Mark it `required: true` when the API cannot be called without it, and list

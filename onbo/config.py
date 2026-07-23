@@ -144,12 +144,18 @@ class MediaSettings(BaseModel):
 
 
 class WelcomeSettings(BaseModel):
-    """Proactive first-contact digest (see handlers/welcome.py).
+    """Proactive first-contact greeting (see handlers/welcome.py).
 
     ``video`` / ``text_overrides`` map a department **or** role name to a starter
-    video URL / a hand-written text that replaces the generated digest.
+    video URL / a hand-written text that replaces the generated greeting.
     """
     enabled: bool = True
+    # Rewrite the greeting through the LLM. Off by default, and that default is
+    # the point: the greeting is three lines a person reads once, while the
+    # round trip is the slowest thing in a first contact. Turn it on only if the
+    # canned wording does not suit you — the text is short either way, so the
+    # model has little to do and cannot bury the invitation in prose.
+    smooth: bool = False
     video: dict[str, str] = Field(default_factory=dict)
     text_overrides: dict[str, str] = Field(default_factory=dict)
 
@@ -256,6 +262,29 @@ class ProductSettings(BaseModel):
         return "" if value is None else value
 
 
+class ActionSettings(BaseModel):
+    """How the command catalogue reaches the classifier.
+
+    ``shortlist_size`` is how many commands one message may put in the prompt.
+    Below it the whole catalogue is printed anyway (searching six things to show
+    six things buys nothing); above it, only the vector search's best matches
+    plus the keyword hits go in.
+
+    Raising it costs tokens on every message and, past a point, accuracy — a
+    model asked to choose from forty lines picks worse than one choosing from
+    ten. Lowering it risks the right command never being offered. ~12 is a sane
+    middle; tune it against your own actions.yaml.
+
+    ``autoindex`` re-embeds the catalogue at startup when actions.yaml has
+    changed. Turn it off to control indexing yourself via ``onbo actions
+    reindex`` (a fleet of workers all noticing the same change at once means the
+    same work done N times).
+    """
+
+    shortlist_size: int = 12
+    autoindex: bool = True
+
+
 class Settings(BaseModel):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     stt: STTSettings = Field(default_factory=STTSettings)
@@ -265,6 +294,7 @@ class Settings(BaseModel):
     media: MediaSettings = Field(default_factory=MediaSettings)
     welcome: WelcomeSettings = Field(default_factory=WelcomeSettings)
     features: FeatureSettings = Field(default_factory=FeatureSettings)
+    actions: ActionSettings = Field(default_factory=ActionSettings)
     product: ProductSettings = Field(default_factory=ProductSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
     postgres_dsn: str = "postgresql+psycopg://onbo:onbo@localhost:5432/onbo"

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..config import Settings
 from ..core.schemas import Profile
-from .store import AccessFilter, Hit
+from .store import ACTION, CONTENT, AccessFilter, Hit
 
 
 class Retriever:
@@ -38,4 +38,16 @@ class Retriever:
     async def search(self, query: str, profile: Profile, limit: int = 5) -> list[Hit]:
         vector = self._get_embedder().encode_one(query)
         access = self._access_from_profile(profile)
-        return await self._get_store().search(vector, access, limit=limit)
+        return await self._get_store().search(vector, access, limit=limit, kind=CONTENT)
+
+    async def search_actions(self, query: str, profile: Profile, limit: int = 12) -> list[str]:
+        """Names of the commands this message plausibly asks for, best first.
+
+        Same index and same access filter as the knowledge base, different
+        ``kind`` — see rag/store.py. The names are a *shortlist*, not a decision:
+        the classifier still reads them and is free to pick none.
+        """
+        vector = self._get_embedder().encode_one(query)
+        access = self._access_from_profile(profile)
+        hits = await self._get_store().search(vector, access, limit=limit, kind=ACTION)
+        return [hit.source for hit in hits if hit.source]

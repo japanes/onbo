@@ -5,6 +5,7 @@ import re
 
 from pydantic import BaseModel, Field
 
+from ..handlers.actions.registry import spec_visible_to
 from .clock import now_line
 from .llm import LLM
 from .schemas import (
@@ -25,6 +26,13 @@ _ENUM_SYNONYMS = {"en": ("англ", "english", "en"), "ru": ("рус", "russian
 # A bare answer to a single question: "12", "#12", "PRJ-7", "a@b.com". Anything
 # with a digit in it and nothing else around it — see `fill` for why.
 _BARE_ID_RE = re.compile(r"^[#№]?[\w.@:/-]{1,64}$")
+# Asking for the capability list, in the no-LLM fallback. The greeting no longer
+# prints that list, so this path has to actually catch the question. Phrases, not
+# bare stems: «команда» alone is a team in half the products onbo plugs into.
+_ABOUT_TRIGGERS = (
+    "умеешь", "можешь", "что ты", "возможности",
+    "список команд", "список действий", "какие команды", "help",
+)
 
 
 class _FilledParams(BaseModel):
@@ -41,6 +49,8 @@ class Classifier:
         *,
         actions_enabled: bool = True,
         rag_enabled: bool = True,
+        retriever=None,
+        shortlist_size: int = 12,
     ) -> None:
         self._llm = llm
         self._actions = actions  # name -> ActionSpec
@@ -49,6 +59,12 @@ class Classifier:
         # answers no free-text questions (actions-only assistant).
         self._actions_enabled = actions_enabled
         self._rag_enabled = rag_enabled
+        # Optional rag.Retriever: picks the commands worth showing for *this*
+        # message (see _shortlist). Without one the whole catalogue is printed,
+        # which is what onbo did before and still does whenever the index is not
+        # usable — slower and dearer, never wrong.
+        self._retriever = retriever
+        self._shortlist_size = shortlist_size
 
     @staticmethod
     def _param_line(name, param) -> str:
@@ -69,7 +85,7 @@ class Classifier:
         meaning = f" — {param.description}" if param.description else ""
         return f"    {name}{suffix}{meaning}"
 
-    def _catalog(self) -> str:
+    def _catalog(self, specs: dict) -> str:
         """The action list as the model sees it.
 
         A bare `(params: project_id, platform)` tells the model nothing about
@@ -80,7 +96,7 @@ class Classifier:
         if not self._actions_enabled:
             return "(profile actions disabled)"
         lines = []
-        for spec in self._actions.values():
+        for spec in specs.values():
             lines.append(f"- {spec.name}: {spec.description}")
             for name, param in spec.params.items():
                 lines.append(self._param_line(name, param))
@@ -88,15 +104,74 @@ class Classifier:
                 lines.append("    (no parameters)")
         return "\n".join(lines) or "(no profile actions configured)"
 
-    async def classify(self, env: Envelope, profile: Profile) -> Classification:
+    def _visible(self, profile: Profile) -> dict:
+        """The commands this person is allowed to have at all."""
+        return {
+            name: spec
+            for name, spec in self._actions.items()
+            if spec_visible_to(spec, profile)
+        }
+
+    async def _shortlist(
+        self, text: str, profile: Profile, parked: str | None = None
+    ) -> dict:
+        """The commands worth putting in front of the model for this message.
+
+        The catalogue is searched, not printed: a vector query returns the dozen
+        or so commands that sound like what was asked, and only those reach the
+        prompt (see handlers/actions/index.py for why).
+
+        Degrading is not optional. No retriever, a catalogue small enough that
+        searching it saves nothing, Qdrant down, an empty index — every one of
+        those falls back to the full list. A long prompt is expensive; a silent
+        «no command matches» is broken.
+
+        The shortlist is a union, never a replacement: whatever the vector found,
+        plus the cheap keyword matches, plus the action currently parked in the
+        session — the reply to «в каком проекте?» rarely resembles the command it
+        belongs to.
+        """
+        if not self._actions_enabled:
+            return {}   # nothing will be offered; do not pay for a search
+        visible = self._visible(profile)
+        if self._retriever is None or len(visible) <= self._shortlist_size:
+            return visible
+        try:
+            found = await self._retriever.search_actions(
+                text, profile, limit=self._shortlist_size
+            )
+        except Exception:  # noqa: BLE001 - Qdrant down, embedder missing, ...
+            return visible
+        names = {name for name in found if name in visible}
+        if not names:
+            return visible
+        lowered = text.lower()
+        names |= {
+            name
+            for name, spec in visible.items()
+            if any(keyword in lowered for keyword in self._keywords(spec))
+        }
+        if parked and parked in visible:
+            names.add(parked)
+        return {name: spec for name, spec in visible.items() if name in names}
+
+    async def classify(
+        self, env: Envelope, profile: Profile, parked: str | None = None
+    ) -> Classification:
+        specs = await self._shortlist(env.text, profile, parked)
         prompt = (
             "Split the user's message into one or more actions.\n"
             "Action types:\n"
             "  profile_action — change a profile setting; set `action` from the catalog and extract `entities`.\n"
             "  rag_query — a question answerable from the knowledge base; put it in `query`.\n"
-            "  about — asks what this assistant can do / how to use it.\n"
+            "  about — asks what this assistant can do / how to use it, or asks for "
+            "the list of available commands.\n"
             "  unknown — cannot tell.\n\n"
-            f"Profile actions catalog:\n{self._catalog()}\n\n"
+            # Only the plausible commands, not all of them — so the model has to
+            # be told that "nothing here fits" is an allowed answer, or it picks
+            # the least-bad line out of a list that never contained the right one.
+            f"Profile actions catalog (a shortlist — if none of these is what the "
+            f"message asks for, do not pick one):\n{self._catalog(specs)}\n\n"
             # Without this the model cannot turn «на 25 июля» into a date at all:
             # it has no clock, and the year is not in the sentence.
             f"{now_line(env.ts)}\n\n"
@@ -114,7 +189,7 @@ class Classifier:
             # Any LLM failure — not installed (LLMUnavailable), endpoint unreachable,
             # or invalid JSON from a small local model — degrades to the heuristic
             # fallback so the pipeline always returns a result.
-            return self._apply_features(self._fallback(env))
+            return self._apply_features(self._fallback(env, specs))
         return self._apply_features(self._backfill_entities(classification, env))
 
     def _apply_features(self, classification: Classification) -> Classification:
@@ -148,9 +223,17 @@ class Classifier:
 
     @staticmethod
     def _keywords(spec) -> list[str]:
-        """Content words from the action's (localised) description."""
+        """Content words for this action: its description plus its ``keywords``.
+
+        The explicit list is what actions.yaml wrote down as the wordings people
+        really use, so it is taken as-is — short entries included. «пост» is four
+        letters short of surviving the description filter and is exactly the word
+        someone types.
+        """
         words = re.findall(r"\w+", spec.description.lower())
-        return [w for w in words if len(w) >= 4 and w not in _STOP_WORDS]
+        derived = [w for w in words if len(w) >= 4 and w not in _STOP_WORDS]
+        explicit = [k.lower() for k in (getattr(spec, "keywords", None) or []) if k]
+        return derived + explicit
 
     def _extract_entities(self, spec, text: str) -> dict:
         """Best-effort slot-filling from raw text for the no-LLM fallback."""
@@ -233,17 +316,21 @@ class Classifier:
             found[name] = value
         return found
 
-    def _fallback(self, env: Envelope) -> Classification:
+    def _fallback(self, env: Envelope, specs: dict | None = None) -> Classification:
         """Heuristic so the skeleton stays runnable without an LLM configured.
 
         Keywords are derived from each action's description (config-driven), so it
         adapts to whatever actions.yaml defines. It is intentionally shallow — the
         real path uses the LLM; this only keeps demos and tests working offline.
+
+        It searches the same shortlist the model was given, not the whole
+        catalogue: an action kept out of the prompt because it is not this
+        person's must not come back in through the offline path.
         """
         text = env.text.lower()
         actions: list[ClassifiedAction] = []
         if self._actions_enabled:
-            for spec in self._actions.values():
+            for spec in (self._actions if specs is None else specs).values():
                 if any(keyword in text for keyword in self._keywords(spec)):
                     actions.append(
                         ClassifiedAction(
@@ -253,7 +340,7 @@ class Classifier:
                             confidence=0.3,
                         )
                     )
-        if any(word in text for word in ("умеешь", "можешь", "что ты", "возможности")):
+        if any(word in text for word in _ABOUT_TRIGGERS):
             actions.append(ClassifiedAction(type=ActionType.about, confidence=0.3))
         if not actions and text.strip():
             actions.append(ClassifiedAction(type=ActionType.rag_query, query=env.text, confidence=0.3))

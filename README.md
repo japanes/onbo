@@ -67,7 +67,22 @@ For several sensitive changes at once it returns several links (hence a link rat
 
 ### Audience: department / roles
 
-Actions (and pipelines) take optional `department` and `roles` — the same semantics as the knowledge base: empty means available to everyone, otherwise the action is only offered to users whose profile matches. This drives both routing and the proactive welcome digest.
+Actions (and pipelines) take optional `department` and `roles` — the same semantics as the knowledge base: empty means available to everyone, otherwise the action is only offered to users whose profile matches. This drives both routing and the «what can I do» catalogue.
+
+### Finding the right command
+
+The catalogue is not pasted into every prompt. It is embedded into the same Qdrant collection as the knowledge base (a separate `kind`, so the two never turn up in each other's results) and **searched per message**: only the commands that sound like what was asked reach the model, filtered server-side by the same department/roles rule.
+
+Because of that, a command needs to be findable, and a short `description` often is not. Two optional lists go into the index and never into the prompt:
+
+```yaml
+delete_project:
+  description: "Delete a project"
+  keywords: [снести, убрать, delete project]
+  examples: ["удали проект «телефон»"]
+```
+
+Tuned by `actions.shortlist_size` (default 12 — below that the whole catalogue is sent anyway) and `actions.autoindex` (re-embed at startup when `actions.yaml` changed; otherwise `onbo actions reindex`). If the index is empty or Qdrant is down, the full catalogue is sent as before — slower and dearer, never wrong.
 
 ### Pipelines
 
@@ -122,7 +137,9 @@ The tool onboards the user onto itself:
 
 ## Proactive welcome
 
-On a user's first contact the assistant introduces itself, tailored to that user's access: who they are per the system (department/roles), what they can do here (the actions and pipelines they may use, grouped by mode), and what they can ask about (their KB collections with a few example questions). An optional starter video per role/department can be attached (`welcome.video`). Triggers: `POST /welcome` (web), `/start` (Telegram), and automatically on a new user's first message — the greeting precedes their actual answer, it never swallows the question. Controlled by `welcome.enabled` and the `features.welcome` flag.
+On a user's first contact the assistant says hello in three lines — who it is, an invitation to write what they need, and a pointer to «что ты умеешь». Deliberately short and deliberately offline: nothing is fetched and no model is called, because the greeting is the one message where waiting is most visible. Set `welcome.smooth: true` to have the LLM reword those three lines; an optional starter video per role/department can be attached (`welcome.video`), and `welcome.text_overrides` replaces the text outright.
+
+The actual catalogue is one question away: **«что ты умеешь» / «список команд»** answers with the actions and pipelines *this* user may run, grouped by mode, plus the knowledge-base sections they may ask about — access-filtered exactly like the KB, and with no LLM in the path. Triggers for the greeting: `POST /welcome` (web), `/start` (Telegram), and automatically on a new user's first message — it precedes their actual answer, it never swallows the question. Controlled by `welcome.enabled` and the `features.welcome` flag.
 
 ## Machine-readable manifest (`llm.json`)
 
@@ -175,6 +192,8 @@ onbo kb import ./faq.yaml                   # bulk import Q&A pairs (see config/
 onbo kb reindex                             # rebuild the index from Postgres
 onbo kb status                              # what the knowledge base currently holds
 onbo about                                  # index the self-docs
+onbo actions reindex                        # embed config/actions.yaml so commands can be searched
+onbo actions status                         # is that index still in step with the file?
 onbo users add u42 --department accounting --roles accountant
 onbo users import ./users.yaml              # bulk import the directory (see config/users.example.yaml)
 onbo demo-backend                            # run the demo product backend on :18100

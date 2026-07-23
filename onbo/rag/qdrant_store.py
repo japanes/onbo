@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 
 from ..config import Settings
-from .store import AccessFilter, Chunk, Hit, VectorStore
+from .store import CONTENT, AccessFilter, Chunk, Hit, VectorStore
 
 # Deterministic namespace so re-indexing the same chunk id yields the same point
 # id (idempotent upserts). Qdrant point ids must be uint64 or a UUID string.
@@ -66,15 +66,43 @@ class QdrantStore(VectorStore):
             )
         return qm.Filter(must=conditions)
 
-    async def search(self, query_vector: list[float], access: AccessFilter, limit: int = 5) -> list[Hit]:
+    @staticmethod
+    def _kind_condition(kind: str):
+        """Keep knowledge and commands out of each other's results.
+
+        Points written before ``kind`` existed carry no such field at all, so
+        asking for content accepts «missing» as content — otherwise the first
+        deploy of this code would silently empty every existing index.
+        """
+        from qdrant_client import models as qm
+
+        match = qm.FieldCondition(key="kind", match=qm.MatchValue(value=kind))
+        if kind != CONTENT:
+            return match
+        return qm.Filter(
+            should=[qm.IsEmptyCondition(is_empty=qm.PayloadField(key="kind")), match]
+        )
+
+    async def search(
+        self,
+        query_vector: list[float],
+        access: AccessFilter,
+        limit: int = 5,
+        kind: str = CONTENT,
+    ) -> list[Hit]:
+        from qdrant_client import models as qm
+
         client = self._get_client()
         # Nothing indexed yet -> no hits (avoids a 404 on a fresh instance).
         if not await client.collection_exists(self._collection):
             return []
+        query_filter = qm.Filter(
+            must=[self._access_filter(access), self._kind_condition(kind)]
+        )
         result = await client.query_points(
             collection_name=self._collection,
             query=query_vector,
-            query_filter=self._access_filter(access),
+            query_filter=query_filter,
             limit=limit,
             with_payload=True,
         )
@@ -84,6 +112,7 @@ class QdrantStore(VectorStore):
             hits.append(
                 Hit(
                     text=payload.get("text", ""),
+                    kind=payload.get("kind") or CONTENT,
                     source=payload.get("source"),
                     score=point.score,
                     is_qa=payload.get("is_qa", False),
@@ -101,6 +130,45 @@ class QdrantStore(VectorStore):
         if await client.collection_exists(self._collection):
             await client.delete_collection(self._collection)
 
+    async def delete_kind(self, kind: str) -> None:
+        """Drop every point of one kind, leaving the others alone.
+
+        A command deleted from actions.yaml has to stop being offered, and an
+        idempotent upsert cannot do that — nothing rewrites a point nobody
+        mentions any more. So the actions index is replaced, not patched.
+        """
+        from qdrant_client import models as qm
+
+        client = self._get_client()
+        if not await client.collection_exists(self._collection):
+            return
+        await client.delete(
+            collection_name=self._collection,
+            points_selector=qm.FilterSelector(
+                filter=qm.Filter(must=[self._kind_condition(kind)])
+            ),
+        )
+
+    async def payload_sample(self, kind: str) -> dict | None:
+        """One stored payload of this kind, or ``None`` if there are none.
+
+        One cheap call that answers «is anything of this kind indexed, and which
+        version of it» — used at startup to notice that actions.yaml changed.
+        """
+        from qdrant_client import models as qm
+
+        client = self._get_client()
+        if not await client.collection_exists(self._collection):
+            return None
+        points, _ = await client.scroll(
+            collection_name=self._collection,
+            scroll_filter=qm.Filter(must=[self._kind_condition(kind)]),
+            limit=1,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return (points[0].payload or {}) if points else None
+
     async def upsert(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         from qdrant_client import models as qm
 
@@ -112,7 +180,9 @@ class QdrantStore(VectorStore):
                 id=_point_id(chunk.id),
                 vector=vector,
                 payload={
+                    **(chunk.meta or {}),   # extras first: they never win
                     "text": chunk.text,
+                    "kind": chunk.kind,
                     "source": chunk.source,
                     "is_qa": chunk.is_qa,
                     "department": chunk.department,

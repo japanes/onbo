@@ -53,7 +53,9 @@ class ApiSpec:                       # как звать бэкенд проду
 
 class ActionSpec:
     name: str                        # ключ в actions:, name подставляется автоматически
-    description: str = ""
+    description: str = ""            # одна короткая строка, её ЧИТАЕТ человек
+    keywords: list[str] = []         # в индекс, не в промпт: синонимы и сленг
+    examples: list[str] = []         # в индекс, не в промпт: целые фразы
     mode: "chat" | "confirm" | "link" = "chat"
     sensitive: bool = False          # true всегда форсит mode: link
     link_url: str | None = None      # для link-действий
@@ -71,6 +73,8 @@ class PipelineStep:
 class PipelineSpec:
     name: str
     description: str = ""
+    keywords: list[str] = []               # как у ActionSpec
+    examples: list[str] = []
     mode: "chat" | "confirm" = "confirm"   # link запрещён
     confirm_prompt: str | None = None
     params: dict[str, ParamSpec] = {}
@@ -87,6 +91,13 @@ class PipelineSpec:
   окружения, говорить, куда летит запрос. Хост бери из кода продукта (настройки,
   `.env`, документация); если хост определить не удалось — оставь плейсхолдер
   `https://CHANGEME/...` и скажи об этом юзеру явно в отчёте.
+- **Заполняй `keywords:` и `examples:` у каждого действия.** Каталог команд не
+  вставляется в промпт целиком: он лежит в Qdrant и ищется вектором на каждое
+  сообщение, в промпт попадают только ~12 ближайших команд. Значит команду надо
+  **находить**, а `description` из трёх слов ищется плохо. Давай 3–8 keywords
+  (синонимы, сленг, английский и локальный вариант — «снести», «убрать»,
+  «delete project») и 2–3 целых примера фразы («удали проект «телефон»»). Эти
+  списки в промпт не уходят и на ответе не стоят ничего.
 - **`handler:` не генерировать.** Декларативного блока `api:` достаточно — onbo
   исполняет его через `GenericHTTPHandler` без Python. Кастомный `handler:` юзер
   добавит сам, если нужна особая валидация.

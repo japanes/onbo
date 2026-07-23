@@ -58,11 +58,15 @@ media:
   base_url: ${MEDIA_BASE_URL:-}
 
 welcome:
-  # Proactive first-contact digest: on a user's first message (or /welcome) the
-  # assistant introduces the features available to their role/department.
+  # Proactive first contact: on a user's first message (or /welcome) the assistant
+  # says hello in three lines and points at «что ты умеешь» for the actual list.
   enabled: ${WELCOME_ENABLED:-true}
+  # Rewrite those three lines through the LLM. Off by default: the greeting is the
+  # one message where waiting is most visible, and a model round trip buys wording
+  # rather than content. The command list is in `about` and never touches the LLM.
+  smooth: ${WELCOME_SMOOTH:-false}
   video: {}            # department|role -> starter video url, e.g. accounting: /media/welcome/accounting.mp4
-  text_overrides: {}   # department|role -> hand-written text instead of the generated digest
+  text_overrides: {}   # department|role -> hand-written text instead of the greeting
 
 auth:
   # Who is asking. By default the caller passes user_id and onbo looks the person
@@ -90,6 +94,21 @@ features:
   welcome: ${FEATURE_WELCOME:-true}            # proactive /welcome + /start
   actions: ${FEATURE_ACTIONS:-true}            # classifier routes profile actions
   rag: ${FEATURE_RAG:-true}                    # classifier answers from the KB
+
+actions:
+  # How the command catalogue reaches the model. The commands are embedded into
+  # the same Qdrant collection as the knowledge base and searched per message, so
+  # a big actions.yaml does not ride along in every prompt.
+  #
+  # shortlist_size — how many commands one message may put in front of the model.
+  # Fewer commands than this in total? The whole list is sent anyway. Raise it and
+  # every message costs more tokens and the model chooses worse; lower it and the
+  # right command may never be offered.
+  shortlist_size: ${ACTIONS_SHORTLIST_SIZE:-12}
+  # Re-embed the catalogue at startup when actions.yaml changed. Turn off if you
+  # run several workers and would rather index once, by hand:
+  #   onbo actions reindex     (and `onbo actions status` to see if it is stale)
+  autoindex: ${ACTIONS_AUTOINDEX:-true}
 
 postgres_dsn: ${POSTGRES_DSN:-postgresql+psycopg://onbo:onbo@localhost:15432/onbo}
 redis_url: ${REDIS_URL:-redis://localhost:16379/0}

@@ -282,7 +282,7 @@ async def test_the_answer_to_which_warehouse_completes_the_action(profile):
     # the reply would fall through to the knowledge base.
     assert pipeline.session.awaiting[profile.user_id]["wanted"] == ["warehouse"]
 
-    answered = await pipeline._resume_pending(
+    answered, _parked = await pipeline._resume_pending(
         Envelope(user_id=profile.user_id, channel="web", text="Торино"), profile
     )
     assert answered.status == ResultStatus.needs_confirm

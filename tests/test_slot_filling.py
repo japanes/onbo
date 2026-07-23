@@ -112,7 +112,7 @@ async def test_nothing_parked_means_the_message_is_classified_as_usual(profile):
     pipeline = _TestPipeline()
     assert await pipeline._resume_pending(
         Envelope(user_id=profile.user_id, channel="web", text="12"), profile
-    ) is None
+    ) == (None, None)
 
 
 async def test_a_forgotten_action_name_does_not_break_the_reply(profile):
@@ -121,4 +121,4 @@ async def test_a_forgotten_action_name_does_not_break_the_reply(profile):
     await pipeline.session.park_input(profile.user_id, "action_that_no_longer_exists", {})
     assert await pipeline._resume_pending(
         Envelope(user_id=profile.user_id, channel="web", text="12"), profile
-    ) is None
+    ) == (None, None)

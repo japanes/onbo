@@ -120,7 +120,7 @@ async def test_backfill_fills_gaps_but_llm_wins(profile):
 
 def test_catalog_says_what_each_param_is():
     """A bare list of names is what makes a model answer `project_id: null`."""
-    catalog = _classifier()._catalog()
+    catalog = _classifier()._catalog(_actions())
     assert "project_id [required] — в каком проекте" in catalog
     assert "platform [required; one of: instagram, telegram] — площадка" in catalog
 

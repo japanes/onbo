@@ -6,10 +6,18 @@
 # tells the model what to extract, and it is the question the user is asked when
 # the message did not say ("Чтобы «Отгрузить заказ», уточните: номер заказа").
 # Skip it only where the name already reads as a question, like `new_email`.
+#
+# `keywords:` and `examples:` are the opposite of `description:` — they are never
+# shown and never sent to the model. This catalogue is embedded into Qdrant and
+# searched on every message (only the ~12 closest commands reach the prompt), so
+# these two lists exist purely to make a command findable: the slang, the second
+# language, the phrasings people actually type. Free at answer time.
 
 actions:
   set_language:                       # low risk -> execute immediately
     description: "Сменить язык интерфейса"
+    keywords: [язык, локализация, language, switch to english]
+    examples: ["переключи на английский", "хочу интерфейс по-русски"]
     mode: chat
     params:
       lang:
