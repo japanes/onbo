@@ -23,6 +23,8 @@ def _param(spec) -> dict:
     out: dict = {"type": spec.type, "required": spec.required}
     if spec.values:
         out["values"] = list(spec.values)
+    if spec.description:
+        out["description"] = spec.description
     return out
 
 

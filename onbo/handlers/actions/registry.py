@@ -15,9 +15,26 @@ from ...core.schemas import ActionMode
 
 
 class ParamSpec(BaseModel):
+    """One value an action needs, and everything needed to obtain it.
+
+    ``description`` is what the assistant is allowed to say out loud about this
+    parameter — in the catalog the classifier reads ("extract *this*") and in the
+    question the user is asked when it is missing ("уточните: в каком проекте").
+    Without it both fall back to the raw parameter name, which is fine for
+    ``new_email`` and useless for ``project_id``.
+    """
+
     type: str = "string"           # string | email | enum | ...
     required: bool = False
     values: list[str] | None = None  # allowed values for enum
+    description: str = ""            # human words: what this is / what to ask for
+
+    def label(self, name: str) -> str:
+        """How this parameter is named to a person, e.g. «площадка (telegram, vk)»."""
+        text = self.description or name
+        if self.values:
+            text = f"{text} ({', '.join(self.values)})"
+        return text
 
 
 class ApiSpec(BaseModel):

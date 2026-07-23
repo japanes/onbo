@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Attachment(BaseModel):
@@ -42,16 +42,19 @@ class Profile(BaseModel):
     # profiles end up in logs and action records.
     product_token: str | None = Field(default=None, repr=False, exclude=True)
 
-    # Extra headers the product needs to answer the same way it answers the
-    # browser (claim ``product_headers``). A credential says *who* is asking;
-    # some products also need *in which context* — active workspace, tenant,
-    # locale — and keep that outside the credential, in a cookie or a header the
-    # browser sends. Without it the product silently picks a default context and
-    # the action lands in the wrong place. Signed by your backend, so the
-    # browser cannot inject headers of its own.
-    product_headers: dict[str, str] = Field(
-        default_factory=dict, repr=False, exclude=True
-    )
+    # Whatever else the product needs to know about this request, carried in the
+    # signed token as the ``context`` claim: the workspace the person has open,
+    # their tenant, their locale. A credential says *who* is asking; it does not
+    # say *from where*, and products routinely keep that apart — in a cookie, a
+    # header, a path segment. onbo calls the product server-to-server, so none
+    # of the browser's own context arrives on its own, and the product quietly
+    # falls back to a default.
+    #
+    # These values are usable anywhere a template is: `{account_id}` in an
+    # action's url, body or query, and in `product.headers` in settings.yaml.
+    # They come only from the signed token, never from the request body, so the
+    # browser cannot make them up.
+    context: dict[str, str] = Field(default_factory=dict)
 
 
 class ActionType(str, Enum):
@@ -67,6 +70,30 @@ class ActionMode(str, Enum):
     link = "link"        # sensitive: return a link, never execute in chat
 
 
+# Values that mean "the message did not say" — however the model chose to spell
+# it. Asked not to invent, a small model still answers `{"project_id": null}`
+# rather than leaving the key out.
+_NOT_A_VALUE = {"", "null", "none", "nil", "n/a", "undefined", "unknown"}
+
+
+def drop_blank_entities(entities: Any) -> dict[str, Any]:
+    """Throw away params the message never actually filled in.
+
+    A null is "I don't know", not a value. Kept, it walks straight through the
+    required-parameter check — the assistant then never asks the person, renders
+    the word "None" into the confirmation, and sends it to the product as if it
+    were real. So an empty value is treated exactly like an absent key.
+    """
+    if not isinstance(entities, dict):
+        return {}
+    return {
+        str(name): value
+        for name, value in entities.items()
+        if value is not None
+        and not (isinstance(value, str) and value.strip().lower() in _NOT_A_VALUE)
+    }
+
+
 class ClassifiedAction(BaseModel):
     """One item the classifier extracts from a (possibly multi-request) message."""
 
@@ -75,6 +102,13 @@ class ClassifiedAction(BaseModel):
     query: str | None = None           # for rag_query: the question
     entities: dict[str, Any] = Field(default_factory=dict)
     confidence: float = 0.0
+
+    @field_validator("entities", mode="before")
+    @classmethod
+    def _only_real_values(cls, value: Any) -> dict[str, Any]:
+        # Done here rather than in the classifier: every source of entities —
+        # the LLM, the regex fallback, a resumed slot-fill — passes through.
+        return drop_blank_entities(value)
 
 
 class Classification(BaseModel):

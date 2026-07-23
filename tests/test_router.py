@@ -29,6 +29,22 @@ def _actions():
             confirm_prompt="Поменять email на {new_email}?",
             params={"new_email": ParamSpec(type="email", required=True)},
         ),
+        "create_post": ActionSpec(
+            name="create_post",
+            description="Создать пост",
+            mode=ActionMode.confirm,
+            confirm_prompt="Создать пост «{topic_title}» в проекте #{project_id}?",
+            params={
+                "project_id": ParamSpec(required=True, description="в каком проекте"),
+                "platform": ParamSpec(
+                    type="enum",
+                    required=True,
+                    values=["instagram", "telegram"],
+                    description="площадка",
+                ),
+                "topic_title": ParamSpec(description="заголовок поста"),
+            },
+        ),
         "change_password": ActionSpec(
             name="change_password",
             description="Сменить пароль",
@@ -88,6 +104,62 @@ async def test_missing_required_param_needs_input(profile):
     )
     assert res.status == ResultStatus.needs_input
     assert "lang" in res.message
+
+
+async def test_a_param_the_model_left_empty_counts_as_missing(profile):
+    """The bug this guards: a null sailed through and rendered as «None»."""
+    r = _router(RecordingHandler())
+    res = await r.route(
+        ClassifiedAction(
+            type=ActionType.profile_action,
+            action="create_post",
+            entities={"project_id": None, "platform": "", "topic_title": "про арбузы"},
+        ),
+        profile,
+    )
+    assert res.status == ResultStatus.needs_input
+    assert "None" not in res.message
+
+
+async def test_the_question_uses_the_param_descriptions(profile):
+    r = _router(RecordingHandler())
+    res = await r.route(
+        ClassifiedAction(type=ActionType.profile_action, action="create_post"), profile
+    )
+    assert res.message == (
+        "Чтобы «Создать пост», уточните: в каком проекте; площадка (instagram, telegram)."
+    )
+
+
+async def test_the_half_filled_action_is_parked_for_the_next_message(profile):
+    session = FakeSession()
+    r = _router(RecordingHandler(), session)
+    await r.route(
+        ClassifiedAction(
+            type=ActionType.profile_action,
+            action="create_post",
+            entities={"topic_title": "про арбузы"},
+        ),
+        profile,
+    )
+    assert session.awaiting[profile.user_id] == {
+        "action": "create_post",
+        "entities": {"topic_title": "про арбузы"},
+    }
+
+
+async def test_an_optional_param_nobody_filled_is_not_the_word_none(profile):
+    r = _router(RecordingHandler())
+    res = await r.route(
+        ClassifiedAction(
+            type=ActionType.profile_action,
+            action="create_post",
+            entities={"project_id": "12", "platform": "instagram"},
+        ),
+        profile,
+    )
+    assert res.status == ResultStatus.needs_confirm
+    assert res.confirm_prompt == "Создать пост «…» в проекте #12?"
 
 
 async def test_chat_mode_executes(profile):

@@ -11,6 +11,33 @@ from .schemas import (
 )
 
 
+class _Blanks(dict):
+    """Renders a placeholder nothing filled as «…» instead of crashing."""
+
+    def __missing__(self, key: str) -> str:
+        return "…"
+
+
+def missing_params(spec, entities: dict) -> list[str]:
+    """Required parameters this action still has no value for.
+
+    Presence of the key is not enough: entities arrive from a language model,
+    and "I don't know" comes back as an empty value at least as often as an
+    absent key. Both mean the same thing — ask the person.
+    """
+    return [
+        name
+        for name, param in spec.params.items()
+        if param.required and not str(entities.get(name, "")).strip()
+    ]
+
+
+def ask_for(spec, missing: list[str]) -> str:
+    """The question a person can answer, built from the parameter descriptions."""
+    wanted = "; ".join(spec.params[name].label(name) for name in missing)
+    return f"Чтобы «{spec.description}», уточните: {wanted}."
+
+
 class Router:
     def __init__(self, actions, registry, rag_handler, about_handler, session) -> None:
         self._actions = actions          # name -> ActionSpec
@@ -47,16 +74,21 @@ class Router:
             )
 
         # Validate / slot-fill required params before doing anything else.
-        missing = [name for name, ps in spec.params.items() if ps.required and name not in action.entities]
+        missing = missing_params(spec, action.entities)
         if missing:
+            # Park what we already have: the next message is read as the answer
+            # to this question, so the person fills the gaps in the chat window
+            # instead of being told to start over.
+            await self._session.park_input(profile.user_id, spec.name, action.entities)
             return ActionResult(
                 status=ResultStatus.needs_input,
                 action=spec.name,
-                message=f"Для «{spec.description}» не хватает: {', '.join(missing)}.",
+                message=ask_for(spec, missing),
             )
 
         if spec.mode == ActionMode.confirm:
-            prompt = (spec.confirm_prompt or f"Подтвердите: {spec.description}?").format(**action.entities)
+            template = spec.confirm_prompt or f"Подтвердите: {spec.description}?"
+            prompt = template.format_map(_Blanks(action.entities))
             # Park the pending action; it executes only when the user confirms.
             await self._session.park(profile.user_id, spec.name, action.entities)
             return ActionResult(status=ResultStatus.needs_confirm, action=spec.name, confirm_prompt=prompt)

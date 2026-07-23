@@ -16,12 +16,19 @@ class FakeSession:
 
     def __init__(self) -> None:
         self.parked: dict[tuple[str, str], dict] = {}
+        self.awaiting: dict[str, dict] = {}
 
     async def park(self, user_id: str, action: str, entities: dict) -> None:
         self.parked[(user_id, action)] = entities
 
     async def pop(self, user_id: str, action: str) -> dict | None:
         return self.parked.pop((user_id, action), None)
+
+    async def park_input(self, user_id: str, action: str, entities: dict) -> None:
+        self.awaiting[user_id] = {"action": action, "entities": entities}
+
+    async def pop_input(self, user_id: str) -> dict | None:
+        return self.awaiting.pop(user_id, None)
 
 
 class RecordingHandler:

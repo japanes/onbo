@@ -18,6 +18,10 @@ _PROMPT = """You are drafting an onboarding assistant action registry.
 Given source-code excerpts from a target product, propose a YAML `actions:`
 mapping. For each action set: description, mode (chat|confirm|link), params, and
 handler path. Rules:
+- Every param gets `description:` in plain words — it is what the assistant says
+  when it has to ask the user for that value ("which project", "platform").
+  Mark it `required: true` when the API cannot be called without it, and list
+  `values:` when only a fixed set is accepted.
 - Sensitive operations (password, personal data, payment) -> mode: link, sensitive: true.
 - Reversible-but-important operations (email, phone) -> mode: confirm.
 - Low-risk operations (language, theme) -> mode: chat.

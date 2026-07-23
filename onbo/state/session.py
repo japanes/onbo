@@ -52,6 +52,37 @@ class Session:
             await client.delete(key)
         return json.loads(raw) if raw else None
 
+    # -- half-finished action waiting for the missing details -------------------
+
+    @staticmethod
+    def _input_key(user_id: str) -> str:
+        # One per user, not per action: a person is answering one question at a
+        # time, and a new request replaces the old one rather than queueing.
+        return f"awaiting:{user_id}"
+
+    async def park_input(self, user_id: str, action: str, entities: dict) -> None:
+        """Remember an action that could not run yet for want of a parameter."""
+        key = self._input_key(user_id)
+        payload = {"action": action, "entities": entities}
+        client = await self._client()
+        if client is None:
+            self._mem[key] = payload
+            return
+        await client.set(key, json.dumps(payload), ex=_TTL_SECONDS)
+
+    async def pop_input(self, user_id: str) -> dict | None:
+        """Fetch and clear it. Popped, never peeked: if the next message turns
+        out to be about something else, the person must not stay stuck in a
+        half-filled form."""
+        key = self._input_key(user_id)
+        client = await self._client()
+        if client is None:
+            return self._mem.pop(key, None)
+        raw = await client.get(key)
+        if raw is not None:
+            await client.delete(key)
+        return json.loads(raw) if raw else None
+
     # -- first-contact marker (db-less fallback; DB is canonical when available) --
 
     @staticmethod

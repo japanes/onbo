@@ -255,6 +255,52 @@ pipelines:
 Only a `chat`/`confirm` action may be a pipeline step: sensitive ones never get
 batched.
 
+### Parameters: what the assistant has to collect in the chat window
+
+A parameter is more than a name and `required`. Describe it in plain words and
+that one description does three jobs: the model learns **what** to pull out of
+the sentence, the person gets a question they can answer, and outside consumers
+read the same thing in `llm.json`.
+
+```yaml
+  create_post:
+    description: "Create a post"
+    mode: confirm
+    confirm_prompt: "Create the post «{topic_title}» in project #{project_id}?"
+    params:
+      project_id:
+        required: true
+        description: "which project"            # ← how to ask a person for it
+      platform:
+        type: enum
+        values: [instagram, telegram]
+        required: true
+        description: "platform"
+      topic_title:
+        description: "post title"               # optional
+```
+
+The conversation that falls out of it:
+
+> — create a post about watermelons
+> — Чтобы «Create a post», уточните: which project; platform (instagram, telegram).
+> — project 12, instagram
+> — Create the post «about watermelons» in project #12? **Ok / Cancel**
+
+What the engine does on its own:
+
+- **An empty value counts as unfilled.** Asked for something the sentence never
+  mentioned, a model answers `null` at least as often as it omits the key. Both
+  mean the same thing: ask the person. Without that rule the null reached the
+  product as a real value and the confirmation read «None».
+- **The half-finished action is remembered** for 10 minutes, and the next
+  message is read as the answer to the question asked: `«12»` completes
+  `project_id` instead of becoming a knowledge-base question of its own.
+- **The form is escapable.** If the reply contains nothing that was asked for,
+  the parked action is dropped and the message is handled normally — nobody is
+  held inside a form after changing their mind.
+- **An optional parameter nobody filled** renders as `…` in the confirmation.
+
 To draft a registry from the product's source:
 
 ```bash

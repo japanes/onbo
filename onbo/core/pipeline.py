@@ -17,8 +17,16 @@ from ..state.session import Session
 from . import aggregator
 from .classifier import Classifier
 from .llm import LLM
-from .router import Router
-from .schemas import ActionResult, Envelope, Profile, Response, ResultStatus
+from .router import Router, missing_params
+from .schemas import (
+    ActionResult,
+    ActionType,
+    ClassifiedAction,
+    Envelope,
+    Profile,
+    Response,
+    ResultStatus,
+)
 
 
 class Pipeline:
@@ -53,9 +61,43 @@ class Pipeline:
         in the users table. Either way it is the only source of the access filter.
         """
         profile = profile or await resolve_profile(env.user_id, self.settings)
+        resumed = await self._resume_pending(env, profile)
+        if resumed is not None:
+            return aggregator.aggregate([resumed])
         classification = await self.classifier.classify(env, profile)
         results = [await self.router.route(action, profile) for action in classification.actions]
         return aggregator.aggregate(results)
+
+    async def _resume_pending(self, env: Envelope, profile: Profile) -> ActionResult | None:
+        """Read this message as the answer to the question we last asked.
+
+        An action that stopped for a missing parameter is parked; the reply to
+        «уточните: в каком проекте» is usually a fragment («в 12-м»), which the
+        classifier alone would turn into a knowledge-base question. So the
+        parked action gets first refusal on the message.
+
+        Returns ``None`` — and the message is classified normally — when nothing
+        is parked or the reply filled nothing in. That is what keeps a person
+        who changed their mind from being held inside a half-finished form.
+        """
+        pending = await self.session.pop_input(profile.user_id)
+        if not pending:
+            return None
+        spec = self.specs.get(pending.get("action") or "")
+        if spec is None:
+            return None
+        entities = dict(pending.get("entities") or {})
+        missing = missing_params(spec, entities)
+        filled = await self.classifier.fill(spec, missing, env.text) if missing else {}
+        if not filled:
+            return None
+        action = ClassifiedAction(
+            type=ActionType.profile_action,
+            action=spec.name,
+            entities={**entities, **filled},
+            confidence=1.0,
+        )
+        return await self.router.route(action, profile)
 
     async def welcome(self, user_id: str, profile: Profile | None = None) -> Response:
         """Proactive first-contact digest, tailored to the user's access.

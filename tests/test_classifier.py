@@ -26,6 +26,19 @@ def _actions():
             description="Сменить email",
             params={"new_email": ParamSpec(type="email", required=True)},
         ),
+        "create_post": ActionSpec(
+            name="create_post",
+            description="Создать пост",
+            params={
+                "project_id": ParamSpec(required=True, description="в каком проекте"),
+                "platform": ParamSpec(
+                    type="enum",
+                    required=True,
+                    values=["instagram", "telegram"],
+                    description="площадка",
+                ),
+            },
+        ),
     }
 
 
@@ -100,3 +113,88 @@ async def test_backfill_fills_gaps_but_llm_wins(profile):
     )
     kept = clf._backfill_entities(given, env)
     assert kept.actions[0].entities == {"new_email": "llm@corp.com"}
+
+
+# -- the catalog the model reads --------------------------------------------
+
+
+def test_catalog_says_what_each_param_is():
+    """A bare list of names is what makes a model answer `project_id: null`."""
+    catalog = _classifier()._catalog()
+    assert "project_id [required] — в каком проекте" in catalog
+    assert "platform [required; one of: instagram, telegram] — площадка" in catalog
+
+
+async def test_the_prompt_forbids_inventing_values(profile, monkeypatch):
+    seen = {}
+
+    class Recorder(BrokenLLM):
+        async def structured(self, messages, schema):
+            seen["prompt"] = messages[0]["content"]
+            raise RuntimeError("no LLM")
+
+    clf = Classifier(Recorder(), _actions())
+    await clf.classify(Envelope(user_id="u1", channel="web", text="привет"), profile)
+    assert "never emit null" in seen["prompt"]
+
+
+# -- filling the gaps from the next message ----------------------------------
+
+
+async def test_a_one_word_reply_answers_the_only_question():
+    """«12» to «в каком проекте» costs no round trip to the model."""
+    clf = _classifier()   # BrokenLLM: nothing but the cheap path can work here
+    spec = _actions()["create_post"]
+    assert await clf.fill(spec, ["project_id"], "12") == {"project_id": "12"}
+
+
+async def test_an_enum_is_recognised_inside_a_sentence():
+    clf = _classifier()
+    spec = _actions()["create_post"]
+    assert await clf.fill(spec, ["platform"], "давай в instagram") == {"platform": "instagram"}
+
+
+async def test_an_unanswered_question_fills_nothing():
+    """The caller reads an empty dict as «this message was about something else»."""
+    clf = _classifier()
+    spec = _actions()["create_post"]
+    assert await clf.fill(spec, ["project_id", "platform"], "а какие вообще есть проекты?") == {}
+
+
+async def test_the_model_fills_what_the_cheap_path_cannot():
+    class Filler(BrokenLLM):
+        async def structured(self, messages, schema):
+            return schema(values={"project_id": "12", "platform": "telegram"})
+
+    clf = Classifier(Filler(), _actions())
+    filled = await clf.fill(_actions()["create_post"], ["project_id", "platform"], "в 12-м, в телегу")
+    assert filled == {"project_id": "12", "platform": "telegram"}
+
+
+async def test_a_value_outside_the_allowed_set_is_not_an_answer():
+    class Inventor(BrokenLLM):
+        async def structured(self, messages, schema):
+            return schema(values={"platform": "myspace"})
+
+    clf = Classifier(Inventor(), _actions())
+    assert await clf.fill(_actions()["create_post"], ["platform"], "куда-нибудь") == {}
+
+
+async def test_a_null_from_the_model_is_not_an_answer():
+    class Nuller(BrokenLLM):
+        async def structured(self, messages, schema):
+            return schema(values={"project_id": "none"})
+
+    clf = Classifier(Nuller(), _actions())
+    assert await clf.fill(_actions()["create_post"], ["project_id"], "не знаю") == {}
+
+
+async def test_a_bare_word_is_not_assumed_to_be_the_answer():
+    """«спасибо» is also a one-word reply to a question — the model decides."""
+    clf = _classifier()   # BrokenLLM: the cheap path is all there is
+    assert await clf.fill(_actions()["create_post"], ["project_id"], "спасибо") == {}
+
+
+async def test_the_hash_people_type_before_an_id_is_dropped():
+    clf = _classifier()
+    assert await clf.fill(_actions()["create_post"], ["project_id"], "#12") == {"project_id": "12"}

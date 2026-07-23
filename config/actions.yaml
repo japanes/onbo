@@ -1,13 +1,22 @@
 # Action registry. New action = new entry here + one handler file. core/ untouched.
 # mode: chat (do now) | confirm (Ok/Cancel first) | link (sensitive -> link only).
 # Rule: sensitive: true always forces mode: link.
+#
+# A param's `description:` is what the assistant is allowed to say about it: it
+# tells the model what to extract, and it is the question the user is asked when
+# the message did not say ("Чтобы «Создать пост», уточните: в каком проекте").
+# Skip it only where the name already reads as a question, like `new_email`.
 
 actions:
   set_language:                       # low risk -> execute immediately
     description: "Сменить язык интерфейса"
     mode: chat
     params:
-      lang: { type: enum, values: [ru, en], required: true }
+      lang:
+        type: enum
+        values: [ru, en]
+        required: true
+        description: "на какой язык"
     # No handler file: the `api:` block below is executed generically.
     api:
       method: POST

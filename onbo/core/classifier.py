@@ -3,8 +3,17 @@ from __future__ import annotations
 
 import re
 
+from pydantic import BaseModel, Field
+
 from .llm import LLM
-from .schemas import ActionType, Classification, ClassifiedAction, Envelope, Profile
+from .schemas import (
+    ActionType,
+    Classification,
+    ClassifiedAction,
+    Envelope,
+    Profile,
+    drop_blank_entities,
+)
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Generic verbs to drop when deriving keywords from an action's description,
@@ -12,6 +21,15 @@ _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _STOP_WORDS = {"сменить", "изменить", "поменять", "change", "set", "update", "интерфейса"}
 # Enum-value synonyms for slot-filling in the no-LLM fallback.
 _ENUM_SYNONYMS = {"en": ("англ", "english", "en"), "ru": ("рус", "russian", "ru")}
+# A bare answer to a single question: "12", "#12", "PRJ-7", "a@b.com". Anything
+# with a digit in it and nothing else around it — see `fill` for why.
+_BARE_ID_RE = re.compile(r"^[#№]?[\w.@:/-]{1,64}$")
+
+
+class _FilledParams(BaseModel):
+    """What the model found in a reply to «чего не хватает»."""
+
+    values: dict[str, str] = Field(default_factory=dict)
 
 
 class Classifier:
@@ -31,13 +49,37 @@ class Classifier:
         self._actions_enabled = actions_enabled
         self._rag_enabled = rag_enabled
 
+    @staticmethod
+    def _param_line(name, param) -> str:
+        """One parameter, described well enough to be extracted or asked for."""
+        notes = []
+        if param.required:
+            notes.append("required")
+        if param.values:
+            notes.append("one of: " + ", ".join(param.values))
+        elif param.type not in ("string", ""):
+            notes.append(param.type)
+        suffix = f" [{'; '.join(notes)}]" if notes else ""
+        meaning = f" — {param.description}" if param.description else ""
+        return f"    {name}{suffix}{meaning}"
+
     def _catalog(self) -> str:
+        """The action list as the model sees it.
+
+        A bare `(params: project_id, platform)` tells the model nothing about
+        what those are, so it fills them with plausible nonsense or with null.
+        Each parameter is therefore listed with what it means, whether it is
+        required and which values are allowed.
+        """
         if not self._actions_enabled:
             return "(profile actions disabled)"
         lines = []
         for spec in self._actions.values():
-            params = ", ".join(spec.params.keys()) or "-"
-            lines.append(f"- {spec.name}: {spec.description} (params: {params})")
+            lines.append(f"- {spec.name}: {spec.description}")
+            for name, param in spec.params.items():
+                lines.append(self._param_line(name, param))
+            if not spec.params:
+                lines.append("    (no parameters)")
         return "\n".join(lines) or "(no profile actions configured)"
 
     async def classify(self, env: Envelope, profile: Profile) -> Classification:
@@ -50,7 +92,10 @@ class Classifier:
             "  unknown — cannot tell.\n\n"
             f"Profile actions catalog:\n{self._catalog()}\n\n"
             f"User message: {env.text!r}\n"
-            "Emit every distinct request as its own action. Set confidence in [0,1]."
+            "Emit every distinct request as its own action. Set confidence in [0,1].\n"
+            "Extract only values the message actually states. Never guess a value, "
+            "and never emit null or an empty string — leave the parameter out "
+            "instead. A missing parameter is asked for; an invented one is acted on."
         )
         try:
             classification = await self._llm.structured(
@@ -112,6 +157,60 @@ class Classifier:
                         entities[name] = value
                         break
         return entities
+
+    async def fill(self, spec, names: list[str], text: str) -> dict:
+        """Read ``names`` out of a message answering the question about them.
+
+        Used when an action was parked for want of a required parameter and the
+        person just replied. Cheap paths first — an enum value, an email, a bare
+        one-word answer to a single question — and the model only for what is
+        left, so «в проекте 12» does not cost a round trip when «12» does not.
+
+        Returns only what the message really contains: an empty dict means the
+        person did not answer, and the caller drops the parked action instead of
+        asking again forever.
+        """
+        found = {
+            name: value
+            for name, value in self._extract_entities(spec, text).items()
+            if name in names
+        }
+        stripped = text.strip()
+        if (
+            len(names) == 1
+            and names[0] not in found
+            and _BARE_ID_RE.match(stripped)
+            and any(ch.isdigit() for ch in stripped)
+        ):
+            # Only for something that looks like an identifier, not for any single
+            # word: «спасибо» is a reply to one open question too, and the model
+            # can tell that apart from an answer where a regex cannot.
+            found[names[0]] = stripped.lstrip("#№")
+
+        missing = [name for name in names if name not in found]
+        if not missing:
+            return found
+
+        lines = "\n".join(self._param_line(name, spec.params[name]) for name in missing)
+        prompt = (
+            f"The user was asked for the missing details of «{spec.description}» "
+            f"and replied: {text!r}\n\n"
+            f"Wanted:\n{lines}\n\n"
+            'Return {"values": {...}} with only the parameters this reply actually '
+            "states. Omit anything it does not say — do not guess, do not use null."
+        )
+        try:
+            filled = await self._llm.structured([{"role": "user", "content": prompt}], _FilledParams)
+        except Exception:  # noqa: BLE001 - no LLM configured, or unusable output
+            return found
+        for name, value in drop_blank_entities(filled.values).items():
+            if name not in missing:
+                continue
+            param = spec.params.get(name)
+            if param and param.values and str(value) not in param.values:
+                continue  # a value outside the allowed set is not an answer
+            found[name] = value
+        return found
 
     def _fallback(self, env: Envelope) -> Classification:
         """Heuristic so the skeleton stays runnable without an LLM configured.
