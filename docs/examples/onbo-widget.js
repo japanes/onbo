@@ -378,6 +378,29 @@ export function init(options = {}) {
     return value || {};
   }
 
+  /**
+   * This browser's local time as ISO-8601 *with its offset*: 2026-07-23T14:07:12+03:00.
+   *
+   * Sent with every request so the assistant can read dates out of a sentence —
+   * «на 25 июля», «завтра в 11:15» mean nothing without knowing today, and the
+   * server may well be in another timezone (or in UTC, which is already on the
+   * next date for anyone east of London late in the evening).
+   *
+   * `Date#toISOString` is deliberately not used: it converts to UTC and drops
+   * the offset, which is the one part that says where the person's day starts.
+   */
+  function localTime() {
+    const now = new Date();
+    const pad = (n) => String(Math.floor(Math.abs(n))).padStart(2, '0');
+    const offset = -now.getTimezoneOffset();               // minutes east of UTC
+    const sign = offset < 0 ? '-' : '+';
+    return (
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+      `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}` +
+      `${sign}${pad(offset / 60)}:${pad(offset % 60)}`
+    );
+  }
+
   async function post(url, body) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), opts.timeout);
@@ -386,7 +409,7 @@ export function init(options = {}) {
         method: 'POST',
         credentials: opts.credentials,
         headers: { 'Content-Type': 'application/json', ...(await extraHeaders()) },
-        body: JSON.stringify({ locale: opts.locale, ...(await auth()), ...body }),
+        body: JSON.stringify({ locale: opts.locale, ts: localTime(), ...(await auth()), ...body }),
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -441,6 +464,7 @@ export function init(options = {}) {
         const pending = add(opts.strings.transcribing, 'sys');
         const body = new FormData();
         body.append('locale', opts.locale);
+        body.append('ts', localTime());
         const credentials = await auth();
         if (credentials.token) body.append('token', credentials.token);
         body.append('audio', new Blob(chunks, { type: recorder.mimeType }), 'voice.webm');

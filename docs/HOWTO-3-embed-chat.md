@@ -326,6 +326,7 @@ app.post("/api/assistant", async (req, res) => {
       user_id: user.id,                        // NEVER take this from the body
       text: String(req.body.text || "").slice(0, 4000),
       locale: "ru",
+      ts: req.body.ts,                         // the browser's clock — pass it on
     }),
   });
   res.status(upstream.status).json(await upstream.json());
@@ -340,7 +341,12 @@ async def assistant(body: dict, user=Depends(current_user)):
     async with httpx.AsyncClient(timeout=60) as client:
         upstream = await client.post(
             "http://app:18000/chat",
-            json={"user_id": user.id, "text": body["text"][:4000], "locale": "ru"},
+            json={
+                "user_id": user.id,
+                "text": body["text"][:4000],
+                "locale": "ru",
+                "ts": body.get("ts"),
+            },
         )
     return upstream.json()
 ```
@@ -351,6 +357,11 @@ Notes that matter:
   backend runs elsewhere, use the host it can actually reach.
 - Set a generous timeout (30–60 s). A cold model plus retrieval is slower than a
   normal API call.
+- `ts` is the browser's local time with its offset (`2026-07-23T14:07:12+03:00`),
+  sent on every widget request. Pass it through: without it «на 25 июля» and
+  "tomorrow" cannot become a date, and the server's clock is not the user's. It
+  is forgeable and worth nothing — at worst someone schedules their own post on
+  the wrong day. Leave it out and onbo uses its own UTC clock.
 - If you use `mode: confirm` actions, proxy `POST /confirm` the same way
   (`{user_id, action, approved}`) — again injecting `user_id` yourself.
 - The widget expects the confirm route to sit next to the chat route: if chat is

@@ -67,11 +67,15 @@ class WebChannel(Channel):
                 user_id: str = Body(None),
                 token: str = Body(None),
                 locale: str = Body("ru"),
+                # The browser's own local time, ISO-8601 with offset. Only ever a
+                # hint for reading dates out of the message (core/clock.py) — it
+                # grants nothing, so it may come from the body unsigned.
+                ts: str = Body(None),
             ):
                 user_id, profile = self._identify(user_id, token)
                 # Prepend the one-time welcome on the user's first message.
                 greeting = await self.pipeline.maybe_welcome(user_id, profile)
-                response = await self.handle_text(user_id, text, locale, profile)
+                response = await self.handle_text(user_id, text, locale, profile, ts)
                 results = (greeting.results if greeting else []) + response.results
                 reply = f"{greeting.text}\n\n{response.text}" if greeting else response.text
                 return {
@@ -86,12 +90,13 @@ class WebChannel(Channel):
                 user_id: str = Body(None),
                 token: str = Body(None),
                 locale: str = Body("ru"),
+                ts: str = Body(None),
             ):
                 if not self.accepts_voice():
                     return {"text": "Голосовой ввод выключен. Напишите, пожалуйста, текстом."}
                 user_id, profile = self._identify(user_id, token)
                 text = await self.transcribe(await audio.read(), locale=locale)
-                response = await self.handle_text(user_id, text, locale, profile)
+                response = await self.handle_text(user_id, text, locale, profile, ts)
                 return {
                     "text": response.text,
                     "transcript": text,

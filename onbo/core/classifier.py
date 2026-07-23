@@ -5,6 +5,7 @@ import re
 
 from pydantic import BaseModel, Field
 
+from .clock import now_line
 from .llm import LLM
 from .schemas import (
     ActionType,
@@ -91,6 +92,9 @@ class Classifier:
             "  about — asks what this assistant can do / how to use it.\n"
             "  unknown — cannot tell.\n\n"
             f"Profile actions catalog:\n{self._catalog()}\n\n"
+            # Without this the model cannot turn «на 25 июля» into a date at all:
+            # it has no clock, and the year is not in the sentence.
+            f"{now_line(env.ts)}\n\n"
             f"User message: {env.text!r}\n"
             "Emit every distinct request as its own action. Set confidence in [0,1].\n"
             "Extract only values the message actually states. Never guess a value, "
@@ -158,7 +162,7 @@ class Classifier:
                         break
         return entities
 
-    async def fill(self, spec, names: list[str], text: str) -> dict:
+    async def fill(self, spec, names: list[str], text: str, ts: str | None = None) -> dict:
         """Read ``names`` out of a message answering the question about them.
 
         Used when an action was parked for want of a required parameter and the
@@ -169,6 +173,9 @@ class Classifier:
         Returns only what the message really contains: an empty dict means the
         person did not answer, and the caller drops the parked action instead of
         asking again forever.
+
+        ``ts`` is the caller's own clock (see core/clock.py): the answer to
+        «на какую дату?» is «25 июля» just as often as it is a full timestamp.
         """
         found = {
             name: value
@@ -196,6 +203,7 @@ class Classifier:
             f"The user was asked for the missing details of «{spec.description}» "
             f"and replied: {text!r}\n\n"
             f"Wanted:\n{lines}\n\n"
+            f"{now_line(ts)}\n\n"
             'Return {"values": {...}} with only the parameters this reply actually '
             "states. Omit anything it does not say — do not guess, do not use null."
         )

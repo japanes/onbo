@@ -88,7 +88,9 @@ class Pipeline:
             return None
         entities = dict(pending.get("entities") or {})
         missing = missing_params(spec, entities)
-        filled = await self.classifier.fill(spec, missing, env.text) if missing else {}
+        filled = (
+            await self.classifier.fill(spec, missing, env.text, env.ts) if missing else {}
+        )
         if not filled:
             return None
         action = ClassifiedAction(

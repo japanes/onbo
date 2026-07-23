@@ -42,8 +42,10 @@ class Channel(ABC):
         """Begin serving (long-poll / webhook / web server)."""
         ...
 
-    def build_envelope(self, user_id: str, text: str, locale: str = "ru") -> Envelope:
-        return Envelope(user_id=user_id, channel=self.name, text=text, locale=locale)
+    def build_envelope(
+        self, user_id: str, text: str, locale: str = "ru", ts: str | None = None
+    ) -> Envelope:
+        return Envelope(user_id=user_id, channel=self.name, text=text, locale=locale, ts=ts)
 
     async def handle_text(
         self,
@@ -51,6 +53,11 @@ class Channel(ABC):
         text: str,
         locale: str = "ru",
         profile: Profile | None = None,
+        ts: str | None = None,
     ) -> Response:
-        env = self.build_envelope(user_id, text, locale)
+        # ``ts`` is the caller's local clock, passed through untouched: a channel
+        # that has one (the web widget) says what date "завтра" means for this
+        # person; one that hasn't (Telegram) leaves it None and the server's own
+        # time is used. See core/clock.py.
+        env = self.build_envelope(user_id, text, locale, ts)
         return await self.pipeline.handle(env, profile)

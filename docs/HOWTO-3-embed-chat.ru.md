@@ -330,6 +330,7 @@ app.post("/api/assistant", async (req, res) => {
       user_id: user.id,                        // НИКОГДА не берите из тела запроса
       text: String(req.body.text || "").slice(0, 4000),
       locale: "ru",
+      ts: req.body.ts,                         // часы браузера — их и передайте
     }),
   });
   res.status(upstream.status).json(await upstream.json());
@@ -344,7 +345,12 @@ async def assistant(body: dict, user=Depends(current_user)):
     async with httpx.AsyncClient(timeout=60) as client:
         upstream = await client.post(
             "http://app:18000/chat",
-            json={"user_id": user.id, "text": body["text"][:4000], "locale": "ru"},
+            json={
+                "user_id": user.id,
+                "text": body["text"][:4000],
+                "locale": "ru",
+                "ts": body.get("ts"),
+            },
         )
     return upstream.json()
 ```
@@ -355,6 +361,11 @@ async def assistant(body: dict, user=Depends(current_user)):
   живёт в другом месте, укажите адрес, до которого он реально достаёт.
 - Ставьте щедрый таймаут (30–60 с). Холодная модель плюс поиск медленнее
   обычного API-вызова.
+- `ts` — местное время браузера с поясом (`2026-07-23T14:07:12+03:00`), виджет
+  шлёт его в каждом запросе. Передайте дальше: без него «на 25 июля» и «завтра»
+  не превратить в дату, а часы сервера — не часы человека. Подделать его можно,
+  но ничего не даёт: максимум человек сам себе поставит публикацию не на тот
+  день. Не передадите — onbo возьмёт своё время (UTC).
 - Если используете действия с `mode: confirm`, проксируйте так же
   `POST /confirm` (`{user_id, action, approved}`) — снова подставляя `user_id`
   сами.

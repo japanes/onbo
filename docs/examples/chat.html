@@ -84,11 +84,24 @@ function addConfirm(result) {
   log.scrollTop = log.scrollHeight;
 }
 
+// This browser's local time with its offset (2026-07-23T14:07:12+03:00), sent on
+// every call: without it «на 25 июля» / «завтра» cannot become a real date, and
+// the server's clock is not the user's. toISOString() is not used — it converts
+// to UTC and throws the offset away.
+function localTime() {
+  const now = new Date();
+  const pad = (n) => String(Math.floor(Math.abs(n))).padStart(2, '0');
+  const off = -now.getTimezoneOffset();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    + `T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+    + `${off < 0 ? '-' : '+'}${pad(off / 60)}:${pad(off % 60)}`;
+}
+
 async function post(path, body) {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ts: localTime(), ...body }),
   });
   if (!res.ok) throw new Error(path + ' → HTTP ' + res.status);
   return res.json();
@@ -169,6 +182,7 @@ document.getElementById('mic').onclick = async function () {
     const form = new FormData();
     form.append('user_id', userInput.value);
     form.append('locale', 'ru');
+    form.append('ts', localTime());
     form.append('audio', new Blob(chunks, { type: recorder.mimeType }), 'voice.webm');
     try {
       const res = await fetch('/voice', { method: 'POST', body: form });

@@ -300,6 +300,12 @@ What the engine does on its own:
   the parked action is dropped and the message is handled normally — nobody is
   held inside a form after changing their mind.
 - **An optional parameter nobody filled** renders as `…` in the confirmation.
+- **"Tomorrow" and "on 25 July" become a real date.** Every widget request carries
+  the browser's local time with its offset, and dates are resolved against that —
+  not against the server's clock, which may well be UTC and a day ahead already. A
+  date with no year means the nearest one still ahead. All you write is the shape
+  you want, in the parameter's description:
+  `description: "when to publish, as 2026-07-25T11:15"`.
 
 To draft a registry from the product's source:
 

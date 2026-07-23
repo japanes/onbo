@@ -22,6 +22,10 @@ class Envelope(BaseModel):
     text: str = ""
     attachments: list[Attachment] = Field(default_factory=list)
     locale: str = "ru"
+    # The sender's OWN local time, ISO-8601 with its offset ("2026-07-23T14:07+03:00").
+    # It is what «на 25 июля» and «завтра» are measured against, and it has to come
+    # from the caller: a server in UTC is already on the next date for half the
+    # planet. Optional — see core/clock.py for what happens without it.
     ts: str | None = None
 
 
