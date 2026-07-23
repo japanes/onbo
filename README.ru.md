@@ -149,7 +149,7 @@ onbo/
 ├── auth/         # профиль пользователя → фильтр доступа
 ├── generator/    # CLI-сканер чужого проекта → черновик actions.yaml
 ├── state/        # Postgres + Redis
-├── config/       # actions.yaml, settings.yaml, *.example.yaml
+├── config/       # *.example.yaml (в git) + твои *.yaml (не в git)
 └── docs/         # flow.mmd, self/
 ```
 
@@ -193,6 +193,23 @@ docker compose up -d          # только инфра: qdrant + postgres + red
 ./run.sh about                # проиндексировать доки о себе в коллекцию `about`
 ./run.sh serve web            # веб-канал + API на http://localhost:18000
 ```
+
+### Свой конфиг
+
+В git лежат только `config/*.example.yaml`. onbo читает `config/settings.yaml`
+и `config/actions.yaml`, а если их нет — тот же файл с суффиксом `.example`.
+Поэтому свежий клон запускается сразу, ничего копировать не надо.
+
+Как только вы правите настройки под свой продукт — снимите копию без суффикса:
+
+```bash
+cp config/settings.example.yaml config/settings.yaml
+cp config/actions.example.yaml  config/actions.yaml
+```
+
+Копия перебивает пример и **не отслеживается git**, так что `git pull` никогда
+её не перетрёт и не упрётся в конфликт. Правки самих `*.example.yaml` бессмысленны:
+их перезапишет следующее обновление.
 
 База знаний стартует **пустой** — onbo не везёт с собой примерного контента, чтобы
 никогда не отвечать чужим FAQ. Наполните её своим:

@@ -149,7 +149,7 @@ onbo/
 ├── auth/         # user profile → access filter
 ├── generator/    # CLI scanner of a target project → draft actions.yaml
 ├── state/        # Postgres + Redis
-├── config/       # actions.yaml, settings.yaml, *.example.yaml
+├── config/       # *.example.yaml (tracked) + your own *.yaml (never)
 └── docs/         # flow.mmd, self/
 ```
 
@@ -193,6 +193,23 @@ docker compose up -d          # infra only: qdrant + postgres + redis
 ./run.sh about                # index the self-docs into the `about` collection
 ./run.sh serve web            # run the web channel + API on http://localhost:18000
 ```
+
+### Your own config
+
+Only `config/*.example.yaml` is tracked. onbo reads `config/settings.yaml` and
+`config/actions.yaml`, falling back to the same file with the `.example` suffix
+when they are absent — so a fresh clone runs with nothing to copy first.
+
+The moment you tune anything for your product, take a copy without the suffix:
+
+```bash
+cp config/settings.example.yaml config/settings.yaml
+cp config/actions.example.yaml  config/actions.yaml
+```
+
+The copy wins over the example and is **not tracked by git**, so `git pull` can
+never overwrite it or stop on a conflict. Editing the `*.example.yaml` in place
+is pointless: the next update overwrites them.
 
 The knowledge base starts **empty** — onbo ships no sample content, so it never
 answers from someone else's FAQ. Fill it with yours:

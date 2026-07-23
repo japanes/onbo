@@ -10,7 +10,7 @@ import importlib
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ...config import config_dir
+from ...config import config_file
 from ...core.schemas import ActionMode
 
 
@@ -137,7 +137,7 @@ class PipelineSpec(BaseModel):
 
 
 def load_action_specs() -> dict[str, ActionSpec]:
-    path = config_dir() / "actions.yaml"
+    path = config_file("actions")
     if not path.exists():
         return {}
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -174,7 +174,7 @@ def load_pipeline_specs(actions: dict[str, ActionSpec]) -> dict[str, PipelineSpe
 
     Names must not collide with plain actions (they share one routing namespace).
     """
-    path = config_dir() / "actions.yaml"
+    path = config_file("actions")
     if not path.exists():
         return {}
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

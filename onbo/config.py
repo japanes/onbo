@@ -298,6 +298,21 @@ def config_dir() -> Path:
     return Path(os.environ.get("ONBO_CONFIG_DIR", "config")).expanduser()
 
 
+def config_file(stem: str) -> Path:
+    """``config/<stem>.yaml`` if it exists, else the ``.example.yaml`` shipped here.
+
+    Only the example is tracked in git. Your own file is untracked, so ``git pull``
+    can never overwrite the settings and actions you tuned for your product — and
+    the repository can still change its example without a merge conflict.
+
+    Falling back to the example means a fresh clone runs before anything is
+    copied: the demo works out of the box, and the moment you copy the example to
+    ``config/<stem>.yaml`` your version takes over.
+    """
+    own = config_dir() / f"{stem}.yaml"
+    return own if own.exists() else config_dir() / f"{stem}.example.yaml"
+
+
 def _read_yaml(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -307,4 +322,4 @@ def _read_yaml(path: Path) -> dict:
 
 @lru_cache(maxsize=1)
 def load_settings() -> Settings:
-    return Settings(**_read_yaml(config_dir() / "settings.yaml"))
+    return Settings(**_read_yaml(config_file("settings")))

@@ -1,0 +1,9 @@
+# Only the *.example.yaml are tracked. Your own settings.yaml / actions.yaml /
+# kb.yaml / users.yaml stay out of git, so `git pull` can never overwrite what
+# you tuned for your product — and onbo can keep changing its examples without
+# ever giving you a merge conflict.
+#
+# To take one over: cp settings.example.yaml settings.yaml — the copy wins as
+# soon as it exists. Until then onbo reads the example, so a fresh clone runs.
+*.yaml
+!*.example.yaml
