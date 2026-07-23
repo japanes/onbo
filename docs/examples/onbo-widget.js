@@ -32,15 +32,21 @@
  * The widget never sends a user id, because a browser cannot be trusted with
  * one. Two supported setups:
  *
- *  1. Proxy (simplest). `endpoint` points at your own backend, which knows the
- *     visitor from its session cookie and forwards the question to onbo with
- *     the user id attached. Nothing to configure here.
+ *  1. Signed token (the normal one). `endpoint` points straight at onbo, and
+ *     `tokenEndpoint` at one small route on YOUR site that mints a short-lived
+ *     JWT for the logged-in visitor. The widget fetches it, caches it until it
+ *     is about to expire and sends it along; onbo reads the user id, department
+ *     and roles out of it and rejects anything with a broken signature. That
+ *     single route is the whole server-side cost of embedding this.
  *
- *  2. Signed token. `getToken()` fetches a short-lived JWT from your backend;
- *     the widget sends it to onbo, which reads the user id, department and roles
- *     out of it. Nothing about access is taken from the page unsigned, so a
- *     forged or edited token is rejected. Use this when mirroring your user
- *     directory into onbo is not practical.
+ *     The token may also carry the person's own API credential, and then
+ *     actions run against your product as them, with your usual permission
+ *     checks — see docs/examples/nuxt/.
+ *
+ *  2. Proxy. `endpoint` points at your own backend, which knows the visitor
+ *     from its session cookie and forwards each call to onbo with the user id
+ *     attached. More routes to write and keep in step, but onbo never has to be
+ *     reachable from the browser — use it when it must stay in a closed network.
  */
 
 const DEFAULTS = {
@@ -51,6 +57,7 @@ const DEFAULTS = {
   voiceEndpoint: null,     // null disables the mic button
 
   getToken: null,          // () => string | Promise<string>, for token mode
+  tokenEndpoint: null,     // URL on YOUR site that mints the token; sets getToken for you
   headers: null,           // object or () => object, e.g. a CSRF header
   credentials: 'same-origin',  // 'include' if your proxy is on another origin
   locale: 'ru',
@@ -177,8 +184,65 @@ function element(tag, className, text) {
   return node;
 }
 
+/** Seconds-since-epoch `exp` out of a JWT, or 0 when it cannot be read. */
+function tokenExpiry(token) {
+  try {
+    // The payload is signed, not encrypted: reading it here is expected, and
+    // nothing is trusted from it — onbo re-verifies the signature server-side.
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return Number(payload.exp) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Turn a token URL into a getToken(), so the whole token mode is reachable from
+ * a plain <script data-token-endpoint="…"> with no glue code on the page.
+ *
+ * The token is short-lived by design, so it is cached and re-fetched shortly
+ * before it expires rather than on every message. One in-flight request is
+ * shared: opening the panel fires welcome and the first question together.
+ */
+function tokenFetcher(url, credentials) {
+  let cached = '';
+  let expiresAt = 0;
+  let inFlight = null;
+  const SKEW = 30;   // refresh this many seconds early
+
+  return async () => {
+    if (cached && Date.now() / 1000 < expiresAt - SKEW) return cached;
+    if (inFlight) return inFlight;
+    inFlight = (async () => {
+      try {
+        // credentials: the session cookie is what proves who is asking.
+        const response = await fetch(url, { credentials, headers: { Accept: 'application/json' } });
+        if (!response.ok) return '';
+        const data = await response.json();
+        const token = typeof data === 'string' ? data : (data.token || '');
+        if (token) {
+          cached = token;
+          // No exp we can read: treat as single-use rather than cache forever.
+          expiresAt = tokenExpiry(token) || 0;
+        }
+        return token;
+      } catch {
+        return '';   // anonymous: onbo answers what it shows to everyone
+      } finally {
+        inFlight = null;
+      }
+    })();
+    return inFlight;
+  };
+}
+
 export function init(options = {}) {
   const opts = { ...DEFAULTS, ...options, strings: { ...DEFAULTS.strings, ...(options.strings || {}) } };
+  if (!opts.getToken && opts.tokenEndpoint) {
+    // Cross-origin by nature: the token comes from your site, the questions go
+    // to onbo, so the cookie has to ride along explicitly.
+    opts.getToken = tokenFetcher(opts.tokenEndpoint, 'include');
+  }
   const confirmUrl = opts.confirmEndpoint || sibling(opts.endpoint, 'confirm');
   const welcomeUrl = opts.welcomeEndpoint || sibling(opts.endpoint, 'welcome');
 
@@ -435,7 +499,9 @@ export function init(options = {}) {
 const tag = document.currentScript
   || document.querySelector('script[src*="onbo-widget"][data-endpoint]');
 if (tag && tag.dataset.endpoint) {
-  const { endpoint, title, subtitle, accent, position, theme, locale, voiceEndpoint } = tag.dataset;
+  const {
+    endpoint, title, subtitle, accent, position, theme, locale, voiceEndpoint, tokenEndpoint,
+  } = tag.dataset;
   init({
     endpoint,
     ...(title && { title }),
@@ -445,6 +511,7 @@ if (tag && tag.dataset.endpoint) {
     ...(theme && { theme }),
     ...(locale && { locale }),
     ...(voiceEndpoint && { voiceEndpoint }),
+    ...(tokenEndpoint && { tokenEndpoint }),
   });
 }
 

@@ -129,6 +129,44 @@ async def test_real_call_backend_error_is_failed(monkeypatch):
     assert "500" in res.message
 
 
+async def test_the_callers_own_credential_wins_over_the_service_key(monkeypatch):
+    # Carried in the signed token: the request then runs as that person, so the
+    # product's own permission checks still apply to whatever the assistant does.
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    settings = http_action.load_settings()
+    settings.product.api_key = "service-key"
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    profile = Profile(user_id="acc1", product_token="the-users-own-key")
+    api = ApiSpec(method="POST", path="/api/projects")
+    res = await http_action.call_product_api(_spec(api), profile, {})
+    assert res.status == ResultStatus.done
+    assert _FakeClient.calls[0]["headers"]["Authorization"] == "Bearer the-users-own-key"
+
+
+async def test_service_key_is_the_fallback_without_one(monkeypatch):
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    settings = http_action.load_settings()
+    settings.product.api_key = "service-key"
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    res = await http_action.call_product_api(_spec(ApiSpec(path="/api/projects")), PROFILE, {})
+    assert res.status == ResultStatus.done
+    assert _FakeClient.calls[0]["headers"]["Authorization"] == "Bearer service-key"
+
+
+def test_a_credential_never_leaks_into_logs_or_records():
+    """It ends up in reprs and dumps otherwise — both routinely get written down."""
+    profile = Profile(user_id="acc1", product_token="the-users-own-key")
+    assert "the-users-own-key" not in repr(profile)
+    assert "product_token" not in profile.model_dump()
+    assert "the-users-own-key" not in profile.model_dump_json()
+
+
 def test_render_leaves_unknown_placeholders_untouched():
     # A missing key must not crash — the raw template survives.
     assert http_action._render("{missing}", {"user_id": "u1"}) == "{missing}"

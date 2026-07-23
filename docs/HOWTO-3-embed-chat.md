@@ -16,31 +16,162 @@ what that person is allowed to see, so **it must not come from the browser
 unprotected**. If it does, anyone can open the console and send
 `{"user_id": "ceo@acme.com", "text": "…"}` and read the CEO's material.
 
-There are two safe ways to satisfy that rule. Pick one:
+There are two safe ways to satisfy that rule. **Take the first one** unless you
+have a reason not to let browsers reach onbo:
 
-| | **A. Proxy** | **B. Signed token** |
+| | **Signed token** (the normal one) | **Proxy** (closed network) |
 |---|---|---|
-| Who knows the roles | onbo, from its own `app_user` table | your backend, inside the token |
-| Directory sync | needed | **none** |
-| Browser talks to | your backend | onbo directly |
-| Extra setup | one endpoint | a shared secret + a few lines of signing |
-| Good for | a few hundred people, a directory that rarely moves | tens of thousands of users, constant joins and leaves |
+| Who knows the roles | your backend, inside the token | onbo, from its own `app_user` table |
+| Directory sync | **none** | needed |
+| Browser talks to | onbo directly | your backend |
+| What you write in your project | **one route** that mints a token | one route per onbo call (chat, confirm, welcome, voice) |
+| Actions run as the person | yes — their own key rides in the token | only through one shared service key |
+| Good for | everyone, from ten people to a million | onbo must not be exposed |
 
-Mode B exists because copying a user directory into onbo stops being reasonable
+Token mode exists because copying a user directory into onbo stops being reasonable
 at scale: a million people with a thousand joining and a thousand leaving daily
-is a synchronisation job nobody wants to own. In mode B onbo stores no users at
+is a synchronisation job nobody wants to own. In token mode onbo stores no users at
 all — every request carries the profile with it, signed.
 
 ---
 
-## 2. Mode A — your backend proxies the requests
+## 2. The signed token — the normal mode
+
+Your backend already knows who the visitor is. Instead of mirroring that
+knowledge into onbo, it hands the browser a short-lived **signed token** with the
+user id, department and roles inside; the browser sends it to onbo with every
+question, and onbo trusts the claims because the signature cannot be forged.
+
+The token is not encrypted and does not need to be — its value is that it is
+*unforgeable*. Editing `"roles": ["intern"]` into `"roles": ["admin"]` breaks the
+signature, and onbo answers 401.
+
+### 2.1. Set the shared secret
+
+```bash
+openssl rand -hex 32          # both sides use this same string
+```
+
+`.env`:
+
+```ini
+ONBO_JWT_SECRET=<the string above>
+ONBO_ALLOW_USER_ID=false                 # production: signed token or nothing
+ONBO_CORS_ORIGINS=https://app.example.com   # the site the widget runs on
+```
+
+```bash
+docker compose up -d app
+```
+
+`ONBO_ALLOW_USER_ID=false` closes the old door: once the endpoint is reachable
+from browsers, a bare `user_id` in the body proves nothing, so it is refused.
+`ONBO_CORS_ORIGINS` lists exactly the origins whose pages may call onbo —
+scheme, host and port must match. `*` together with no secret is refused at
+startup rather than quietly allowed.
+
+### 2.2. Issue the token on your side
+
+It is a plain JWT, HS256. Any library produces a compatible one.
+
+Node (`jsonwebtoken`):
+
+```js
+app.get("/api/assistant/token", (req, res) => {
+  const user = req.session.user;
+  if (!user) return res.sendStatus(401);
+  res.json({
+    token: jwt.sign(
+      { sub: user.id, department: user.department, roles: user.roles },
+      process.env.ONBO_JWT_SECRET,
+      { expiresIn: "10m" },
+    ),
+  });
+});
+```
+
+Python (`pyjwt`):
+
+```python
+@app.get("/api/assistant/token")
+async def assistant_token(user=Depends(current_user)):
+    claims = {
+        "sub": user.id,
+        "department": user.department,
+        "roles": user.roles,
+        "exp": int(time.time()) + 600,
+    }
+    return {"token": jwt.encode(claims, os.environ["ONBO_JWT_SECRET"], algorithm="HS256")}
+```
+
+The claims:
+
+| claim | meaning |
+|---|---|
+| `sub` | the user id. Required. Used for the session and the one-time welcome. |
+| `department` (or `dept`) | one department name. Optional. |
+| `roles` | list of role names or ids — whatever your system uses. A single value without a list is accepted too. |
+| `exp` | expiry, unix seconds. **Required** — a token that never expires is a permanent key. |
+| `product_token` | this person's own key for your API. Optional — see §2.3. |
+
+Keep the lifetime short (5–15 minutes) and let the widget re-fetch: `getToken()`
+is called before every request, so a fresh token costs one cached call on your
+side.
+
+Role names must match the tags on your knowledge-base material exactly — the
+same rule as §3.2, and the same silent failure when they do not.
+
+### 2.3. Acting as the person
+
+Answering questions is half of it; the other half is the assistant *doing*
+something in your product — creating a project, changing a language. onbo calls
+your API for that, and the question is whose key it uses.
+
+Put a `product_token` claim in the token — the user's own key, the one their
+browser already uses against your API:
+
+```js
+{ sub: user.id, roles: user.roles, product_token: req.session.accessToken }
+```
+
+onbo then puts it in the `Authorization` header of the outgoing request, and
+your API applies that person's normal permissions. The assistant physically
+cannot do more than they could do by hand, so you never have to restate your
+permission model inside onbo. The key is not stored anywhere: it lives in memory
+for the duration of the request and reaches neither logs nor action records.
+
+Leave the claim out and onbo falls back to the single key in its own settings
+(`PRODUCT_API_KEY`) — every action then runs as that one service user.
+
+The trade-off, plainly: with this claim the browser holds a token that works
+against your API directly. It lives for minutes, and the person could call that
+API as themselves anyway — but such a request bypasses any check that lives only
+in your HTTP layer. If that matters more than per-person actions do, leave the
+claim out.
+
+### 2.4. Try it by hand
+
+```bash
+docker compose exec app onbo token u_1042 --department accounting --roles accountant
+# → eyJhbGciOiJIUzI1NiIs…
+
+curl -s -X POST http://localhost:18000/chat -H 'Content-Type: application/json' \
+  -d '{"token":"eyJ…","text":"what is my vacation allowance?"}'
+```
+
+Edit one character in the middle of the token and the same request returns 401.
+That is the whole security model, and it is worth seeing once.
+
+---
+
+## 3. The proxy — when onbo must stay out of reach of browsers
 
 ```
 browser (widget)  →  YOUR backend /api/assistant  →  onbo POST /chat
    session cookie      puts user_id from session      port 18000, private network
 ```
 
-### 2.1. What onbo stores about a person
+### 3.1. What onbo stores about a person
 
 One row per person in the `app_user` Postgres table:
 
@@ -59,7 +190,7 @@ model, so "show me the other department's documents" cannot work.
 Anyone **not** in the table gets the least-privilege default: no department,
 `roles: ["employee"]`, public content only. Nothing breaks; they just see less.
 
-### 2.2. Naming departments and roles
+### 3.2. Naming departments and roles
 
 Use the same names here and in the knowledge base tags — they are matched as
 plain strings. Pick them once:
@@ -77,7 +208,7 @@ docker compose exec app onbo users add u_1042 \
 A typo (`accountants` vs `accountant`) does not raise an error anywhere — it
 just silently hides the material. Keep the list of names short and written down.
 
-### 2.3. Bulk import
+### 3.3. Bulk import
 
 Export your directory into a YAML file with a top-level `users:` list — the
 shape is documented in `config/users.example.yaml`:
@@ -101,7 +232,7 @@ Import is idempotent: re-running it rewrites the department and roles of anyone
 already listed, and adds the rest. Nobody is ever deleted by an import, so a
 person removed from your HR system keeps their old profile until you clear it.
 
-### 2.4. Keeping it in sync
+### 3.4. Keeping it in sync
 
 Pick whichever fits how often your org chart moves:
 
@@ -122,9 +253,9 @@ Pick whichever fits how often your org chart moves:
   onbo uses it to decide whether the person has already had the welcome digest.
 
 If keeping this in step with your real directory sounds like a chore, that is
-exactly what mode B removes.
+exactly what token mode removes.
 
-### 2.5. The proxy endpoint
+### 3.5. The proxy endpoint
 
 One endpoint, no state. Express:
 
@@ -173,106 +304,6 @@ Notes that matter:
 
 ---
 
-## 3. Mode B — a signed token, no directory
-
-Your backend already knows who the visitor is. Instead of mirroring that
-knowledge into onbo, it hands the browser a short-lived **signed token** with the
-user id, department and roles inside; the browser sends it to onbo with every
-question, and onbo trusts the claims because the signature cannot be forged.
-
-The token is not encrypted and does not need to be — its value is that it is
-*unforgeable*. Editing `"roles": ["intern"]` into `"roles": ["admin"]` breaks the
-signature, and onbo answers 401.
-
-### 3.1. Set the shared secret
-
-```bash
-openssl rand -hex 32          # both sides use this same string
-```
-
-`.env`:
-
-```ini
-ONBO_JWT_SECRET=<the string above>
-ONBO_ALLOW_USER_ID=false                 # production: signed token or nothing
-ONBO_CORS_ORIGINS=https://app.example.com   # the site the widget runs on
-```
-
-```bash
-docker compose up -d app
-```
-
-`ONBO_ALLOW_USER_ID=false` closes the old door: once the endpoint is reachable
-from browsers, a bare `user_id` in the body proves nothing, so it is refused.
-`ONBO_CORS_ORIGINS` lists exactly the origins whose pages may call onbo —
-scheme, host and port must match. `*` together with no secret is refused at
-startup rather than quietly allowed.
-
-### 3.2. Issue the token on your side
-
-It is a plain JWT, HS256. Any library produces a compatible one.
-
-Node (`jsonwebtoken`):
-
-```js
-app.get("/api/assistant/token", (req, res) => {
-  const user = req.session.user;
-  if (!user) return res.sendStatus(401);
-  res.json({
-    token: jwt.sign(
-      { sub: user.id, department: user.department, roles: user.roles },
-      process.env.ONBO_JWT_SECRET,
-      { expiresIn: "10m" },
-    ),
-  });
-});
-```
-
-Python (`pyjwt`):
-
-```python
-@app.get("/api/assistant/token")
-async def assistant_token(user=Depends(current_user)):
-    claims = {
-        "sub": user.id,
-        "department": user.department,
-        "roles": user.roles,
-        "exp": int(time.time()) + 600,
-    }
-    return {"token": jwt.encode(claims, os.environ["ONBO_JWT_SECRET"], algorithm="HS256")}
-```
-
-The claims:
-
-| claim | meaning |
-|---|---|
-| `sub` | the user id. Required. Used for the session and the one-time welcome. |
-| `department` (or `dept`) | one department name. Optional. |
-| `roles` | list of role names or ids — whatever your system uses. A single value without a list is accepted too. |
-| `exp` | expiry, unix seconds. **Required** — a token that never expires is a permanent key. |
-
-Keep the lifetime short (5–15 minutes) and let the widget re-fetch: `getToken()`
-is called before every request, so a fresh token costs one cached call on your
-side.
-
-Role names must match the tags on your knowledge-base material exactly — the
-same rule as §2.2, and the same silent failure when they do not.
-
-### 3.3. Try it by hand
-
-```bash
-docker compose exec app onbo token u_1042 --department accounting --roles accountant
-# → eyJhbGciOiJIUzI1NiIs…
-
-curl -s -X POST http://localhost:18000/chat -H 'Content-Type: application/json' \
-  -d '{"token":"eyJ…","text":"what is my vacation allowance?"}'
-```
-
-Edit one character in the middle of the token and the same request returns 401.
-That is the whole security model, and it is worth seeing once.
-
----
-
 ## 4. The widget
 
 `docs/examples/onbo-widget.js` is a self-contained chat window: a launcher
@@ -280,8 +311,8 @@ bubble, the panel, links as buttons, Ok/Cancel cards for confirm-mode actions,
 optional voice. No dependencies, no build step. It renders inside a shadow root,
 so your site's CSS cannot leak into it and its own cannot leak out.
 
-**It never sends a user id.** Either your proxy adds it (mode A) or the token
-carries it (mode B).
+**It never sends a user id.** Either it arrives in the signed token, or your
+proxy adds it server-side.
 
 Copy it somewhere your site serves static files:
 
@@ -289,35 +320,48 @@ Copy it somewhere your site serves static files:
 cp docs/examples/onbo-widget.js public/
 ```
 
-### 4.1. Static HTML — no code at all
+### 4.1. One tag, and that's it
+
+Token mode is configured entirely from attributes, with no JS at all:
 
 ```html
 <script type="module" src="/onbo-widget.js"
-        data-endpoint="/api/assistant/chat"
+        data-endpoint="https://onbo.example.com/chat"
+        data-token-endpoint="/api/assistant/token"
+        data-voice-endpoint="https://onbo.example.com/voice"
         data-title="Помощник"></script>
 ```
 
-Or with options, which is the same thing written out:
+- `data-endpoint` — onbo's address **as the browser sees it**. `/confirm` and
+  `/welcome` are derived from it.
+- `data-token-endpoint` — your route from §2.2. The widget calls it, caches the
+  token and refreshes it half a minute before expiry, sending cookies along. A
+  401 there means the widget stays anonymous rather than breaking.
+- `data-voice-endpoint` — **no mic button without it**.
 
-```html
-<script type="module">
-  import { init } from '/onbo-widget.js';
-  init({ endpoint: '/api/assistant/chat', title: 'Помощник' });
-</script>
-```
+This is the mode that needs `ONBO_CORS_ORIGINS`: the browser talks to onbo
+directly.
 
-### 4.2. Token mode
+### 4.2. The same thing from JS
 
-`endpoint` points straight at onbo, and `getToken` fetches a fresh token from
-your backend:
+If you get the token some other way (it is already in a store, it comes from
+elsewhere), pass a function:
 
 ```js
 init({
   endpoint: 'https://onbo.example.com/chat',
-  getToken: async () => (await fetch('/api/assistant/token', {
-    credentials: 'same-origin',
-  }).then(r => r.json())).token,
+  getToken: () => authStore.onboToken,      // sync or a Promise
 });
+```
+
+`getToken()` is called before every request, so caching and refreshing are then
+yours to do. `tokenEndpoint` is simply a ready-made implementation of it.
+
+Proxy mode looks the same, with your own addresses and no token:
+
+```html
+<script type="module" src="/onbo-widget.js"
+        data-endpoint="/api/assistant/chat"></script>
 ```
 
 This is the setup that needs `ONBO_CORS_ORIGINS` — the browser is talking to
@@ -354,15 +398,16 @@ onUnmounted(() => widget.destroy());
 
 ### 4.5. Nuxt 3 — the whole thing, as files
 
-`docs/examples/nuxt/` is a ready mode-A integration: four server routes (chat,
-confirm, welcome, voice), a plugin that shows the window to logged-in visitors,
-and a README saying what to copy. Exactly two things need editing: how to get
-the user out of your session, and where onbo lives.
+`docs/examples/nuxt/` is a ready token-mode integration: one route that mints
+the token (carrying the user's own key, §2.3), plus the widget. Exactly one
+thing needs editing — how to get the logged-in person out of your session.
 
 ```bash
-cp -r docs/examples/nuxt/server docs/examples/nuxt/plugins ~/my-nuxt-app/
+cp -r docs/examples/nuxt/server ~/my-nuxt-app/
 cp docs/examples/onbo-widget.js ~/my-nuxt-app/public/
 ```
+
+The widget goes in as a tag straight in `nuxt.config.ts` — no plugin needed.
 
 Details in [docs/examples/nuxt/README.md](examples/nuxt/README.md) (Russian).
 
@@ -381,7 +426,7 @@ the file, load it with a `<script type="module">` tag and use
 | `confirmEndpoint` | derived | the confirm route; by default the sibling of `endpoint` |
 | `welcomeEndpoint` | derived | the welcome route, same rule |
 | `voiceEndpoint` | `null` | multipart voice upload. Unset = no mic button |
-| `getToken` | `null` | `() => token`, sync or async. Mode B |
+| `getToken` | `null` | `() => token`, sync or async. Token mode |
 | `headers` | `null` | extra headers (a CSRF token, for instance); object or function |
 | `credentials` | `same-origin` | `include` if your proxy sits on another origin |
 | `title` / `subtitle` | `Помощник` | panel header |
@@ -402,10 +447,15 @@ panel and sends the question.
 
 ### 4.8. Voice
 
-Voice is `multipart/form-data`, so in mode A it needs a proxy route that
-forwards a file rather than JSON. In mode B point `voiceEndpoint` at onbo's
-`/voice` directly. Browsers only grant microphone access in a secure context:
-`localhost` counts, a remote host needs HTTPS.
+**There is no mic button until `voiceEndpoint` is set** (or the
+`data-voice-endpoint` attribute) — much the commonest reason for "the microphone
+never showed up". In token mode point it straight at onbo's `/voice`; in proxy
+mode you need a route of your own that forwards the file, because voice goes up
+as `multipart/form-data` rather than JSON.
+
+The second condition is a secure context: browsers only grant microphone access
+over HTTPS, and `localhost` counts as secure. Speech recognition also has to be
+enabled on the onbo side (`STT_MODEL`), or `/voice` politely asks for text.
 
 ### 4.9. What comes back
 
@@ -441,11 +491,11 @@ cp docs/examples/chat.html media/
 While the stack is only reachable from your machine, the published ports are
 convenient. Before real users touch it:
 
-- **Mode A:** remove `ports: - "18000:18000"` from the `app` service if your
+- **Proxy:** remove `ports: - "18000:18000"` from the `app` service if your
   backend is on the same Docker network — `http://app:18000` keeps working, the
   outside world loses its way in. Otherwise put onbo behind a firewall rule that
   allows only your backend's address.
-- **Mode B:** the port has to be reachable from browsers, so instead put onbo
+- **Token:** the port has to be reachable from browsers, so instead put onbo
   behind TLS on your own domain and rely on `ONBO_ALLOW_USER_ID=false` plus a
   precise `ONBO_CORS_ORIGINS`. Never `*`.
 - Set `ONBO_ADMIN_TOKEN` in `.env`. Without it `/admin` is open to anyone who
@@ -459,9 +509,9 @@ convenient. Before real users touch it:
 
 - [ ] `onbo kb status` shows content, and the names of departments and roles in
       it match the ones your product uses.
-- [ ] Mode A: `onbo users import` has run; the browser calls **your** endpoint
+- [ ] Proxy: `onbo users import` has run; the browser calls **your** endpoint
       and `user_id` comes from the session.
-- [ ] Mode B: `ONBO_ALLOW_USER_ID=false`, `ONBO_CORS_ORIGINS` lists your site
+- [ ] Token: `ONBO_ALLOW_USER_ID=false`, `ONBO_CORS_ORIGINS` lists your site
       exactly, tokens expire in minutes.
 - [ ] Logged out → the endpoint returns 401 rather than a public answer.
 - [ ] Logged in as someone from another department → their material is absent

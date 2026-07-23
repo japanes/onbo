@@ -72,14 +72,23 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
                 ),
             )
         url = product.base_url.rstrip("/") + "/" + path.lstrip("/")
+    # Who the request is made as. The caller's own credential — carried in the
+    # signed token and never persisted — wins over the shared service key: then
+    # the product applies its normal per-user permissions and the assistant
+    # cannot reach anything the person could not reach by hand. The static
+    # product.api_key stays as the fallback for setups with no per-user
+    # credential (a backend that trusts onbo wholesale, or the demo backend).
     headers = {}
-    if product.api_key:
-        headers[product.auth_header] = f"{product.auth_scheme or ''} {product.api_key}".strip()
+    credential = getattr(profile, "product_token", None) or product.api_key
+    if credential:
+        headers[product.auth_header] = f"{product.auth_scheme or ''} {credential}".strip()
 
     try:
         import httpx
 
-        async with httpx.AsyncClient(timeout=product.timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=product.timeout, verify=product.verify_tls
+        ) as client:
             resp = await client.request(
                 api.method.upper(), url, json=body or None, params=query or None, headers=headers
             )

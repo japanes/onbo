@@ -64,6 +64,17 @@ def test_roundtrip_carries_id_department_and_roles():
     )
 
 
+def test_roundtrip_carries_the_callers_own_product_credential():
+    # Optional claim: with it, actions call the product as this person instead of
+    # through one shared service key.
+    token = sign_token("u1", SECRET, product_token="usr-key-42")
+    assert profile_from_token(token, _settings()).product_token == "usr-key-42"
+
+
+def test_no_credential_claim_means_no_credential():
+    assert profile_from_token(sign_token("u1", SECRET), _settings()).product_token is None
+
+
 def test_a_different_secret_is_not_trusted():
     token = sign_token("u1", "other-secret")
     with pytest.raises(TokenError, match="подпись"):

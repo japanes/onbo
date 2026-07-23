@@ -78,6 +78,11 @@ def profile_from_token(token: str, settings: Settings) -> Profile:
     Claims: ``sub`` (user id, required), ``department`` (or ``dept``) and
     ``roles`` — a list of role names or ids, whatever your system uses; onbo only
     compares them with the tags on knowledge-base entries and actions.
+
+    Optional ``product_token``: the caller's own credential for the product's
+    API. Put it in and actions run as that person, with the product's usual
+    permission checks intact; leave it out and actions fall back to the single
+    ``product.api_key`` from settings.
     """
     secret = settings.auth.jwt_secret
     if not secret:
@@ -92,10 +97,12 @@ def profile_from_token(token: str, settings: Settings) -> Profile:
     if isinstance(roles, (str, int)):
         roles = [roles]
     department = claims.get("department") or claims.get("dept")
+    product_token = claims.get("product_token")
     return Profile(
         user_id=user_id,
         department=str(department) if department else None,
         roles=[str(role) for role in roles],
+        product_token=str(product_token) if product_token else None,
     )
 
 
@@ -105,6 +112,7 @@ def sign_token(
     department: str | None = None,
     roles: list[str] | None = None,
     ttl: int = 300,
+    product_token: str | None = None,
 ) -> str:
     """Issue a token — for tests and for `onbo token`, to try the flow by hand.
 
@@ -117,5 +125,7 @@ def sign_token(
         payload["department"] = department
     if roles:
         payload["roles"] = list(roles)
+    if product_token:
+        payload["product_token"] = product_token
     body = _b64url_encode(json.dumps(payload).encode())
     return f"{header}.{body}.{_b64url_encode(_sign(f'{header}.{body}', secret))}"

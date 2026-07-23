@@ -235,6 +235,10 @@ class ProductSettings(BaseModel):
     auth_header: str = "Authorization"
     auth_scheme: str | None = "Bearer"   # header value = "<scheme> <api_key>"; empty = raw key
     timeout: float = 10.0
+    # TLS verification for outgoing calls. Turn it off ONLY to develop against a
+    # self-signed https://localhost — with it off, a man in the middle can read
+    # and rewrite everything onbo sends, api_key included. Never in production.
+    verify_tls: bool = True
 
     @field_validator("name", "description", mode="before")
     @classmethod

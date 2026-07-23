@@ -32,6 +32,16 @@ class Profile(BaseModel):
     department: str | None = None
     roles: list[str] = Field(default_factory=list)
 
+    # The caller's OWN credential for the target product's API, carried inside
+    # the signed token (claim ``product_token``). When present, an action calls
+    # the product as this person rather than through one shared service key, so
+    # the product's own permission checks still apply — the assistant can never
+    # do more than the person asking could do by hand.
+    #
+    # Never serialised and never shown in a repr: it is a live credential, and
+    # profiles end up in logs and action records.
+    product_token: str | None = Field(default=None, repr=False, exclude=True)
+
 
 class ActionType(str, Enum):
     profile_action = "profile_action"

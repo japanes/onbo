@@ -1,70 +1,92 @@
-# Nuxt 3: чат-виджет за 5 файлов
+# Nuxt 3: чат-виджет за два файла
 
-Готовая интеграция в режиме A (запросы идут через ваш бэкенд — см.
-[HOWTO-3](../../HOWTO-3-embed-chat.ru.md)). Браузер обращается только к вашему
-домену, `user_id` подставляется на сервере из сессии.
+Виджет ходит в onbo напрямую по HTTP. Внутри вашего проекта остаётся одна
+ручка — она выдаёт короткоживущий подписанный токен, по которому onbo понимает,
+кто спрашивает. Больше ничего проксировать не надо.
+
+```
+браузер ──вопрос──────────────► onbo (http://localhost:18000)
+   │                                │
+   └──токен──► ваш /api/assistant/token   └──действие──► ваш API
+```
 
 ## Что копировать
-
-Из этой папки в корень вашего Nuxt-проекта, сохраняя структуру:
 
 ```bash
 ONBO=~/projects/onbo            # где лежит клон onbo
 APP=~/projects/my-nuxt-app      # ваш проект
 
-cp -r $ONBO/docs/examples/nuxt/server  $APP/
-cp -r $ONBO/docs/examples/nuxt/plugins $APP/
-cp $ONBO/docs/examples/onbo-widget.js  $APP/public/
+cp -r $ONBO/docs/examples/nuxt/server $APP/
+cp $ONBO/docs/examples/onbo-widget.js $APP/public/
 ```
 
 Получится:
 
 ```
-server/utils/onbo.js                    ← адрес onbo + кто спрашивает
-server/api/assistant/chat.post.js       ← вопрос
-server/api/assistant/confirm.post.js    ← кнопки Ок/Отмена
-server/api/assistant/welcome.post.js    ← приветствие
-server/api/assistant/voice.post.js      ← голос (необязательно)
-plugins/onbo.client.js                  ← показать окно чата
-public/onbo-widget.js                   ← сам виджет
+server/api/assistant/token.get.js   ← выдаёт токен залогиненному
+public/onbo-widget.js               ← сам виджет
 ```
 
 ## Что поправить руками
 
-**1. `server/utils/onbo.js`, функция `assistantUser(event)`** — единственное
-место, где нужен ваш код. Верните id залогиненного человека или бросьте 401:
+**1. `token.get.js`, строчки с `requireAuth`** — единственное место, где нужен
+ваш код. Верните залогиненного человека или бросьте 401 (тогда виджет работает
+анонимно и отвечает только тем, что опубликовано для всех):
 
 ```js
-export async function assistantUser(event) {
-  const user = await requireAuth(event)        // ваша авторизация
-  return String(user.id)
+const user = await requireAuth(event)        // ваша авторизация
+```
+
+Его `user.id` должен совпадать с тем, что заведён через `onbo users add`, либо
+отдел и роли кладите прямо в токен — claim'ы `department` и `roles`.
+
+**2. Подключите виджет** — в `nuxt.config.ts`, одним тегом, без плагинов:
+
+```ts
+app: {
+  head: {
+    script: [{
+      type: 'module',
+      src: '/onbo-widget.js',
+      'data-endpoint': 'http://localhost:18000/chat',
+      'data-token-endpoint': '/api/assistant/token',
+      'data-voice-endpoint': 'http://localhost:18000/voice',   // без него нет микрофона
+      'data-title': 'Помощник',
+    }],
+  },
 }
 ```
 
-Этот id должен совпадать с тем, что заведён через `onbo users add` — по нему
-onbo определяет отдел и роли, а значит и что человеку показывать.
+`data-endpoint` — адрес onbo, каким его видит **браузер** (не `app:18000`:
+внутренние docker-имена браузеру не резолвятся). Адреса `/confirm` и `/welcome`
+виджет выводит из него сам.
 
-**2. `plugins/onbo.client.js`, строка с `useAuthStore()`** — подставьте свой
-признак «пользователь вошёл». Виджет не должен появляться на странице логина:
-ручки всё равно ответят 401.
+**3. Разрешите onbo принимать запросы с вашего домена.** Браузер не пустит
+запрос на чужой origin, пока сервер это явно не разрешил:
 
-**3. Адрес onbo.** По умолчанию `http://localhost:18000`. Переопределяется
-переменной `ONBO_URL` или ключом `onboUrl` в `runtimeConfig`:
-
-```js
-// nuxt.config.ts
-runtimeConfig: {
-  onboUrl: process.env.ONBO_URL || 'http://localhost:18000',
-}
+```bash
+# .env у onbo
+ONBO_JWT_SECRET=<длинная случайная строка>
+ONBO_CORS_ORIGINS=https://app.example.com,https://localhost:8443
+ONBO_ALLOW_USER_ID=false        # запретить вход по голому user_id из браузера
 ```
 
-В Docker `localhost` — это сам контейнер Nuxt, а не хост. Варианты:
+Тот же `ONBO_JWT_SECRET` положите в окружение вашего Nuxt — им подписывается
+токен. Секрет никогда не уходит в браузер.
 
-| где живут onbo и Nuxt | `ONBO_URL` |
-|---|---|
-| один `docker-compose.yml` | `http://app:18000` (имя сервиса) |
-| разные compose-проекты | `http://host.docker.internal:18000` + `extra_hosts: ["host.docker.internal:host-gateway"]` у сервиса Nuxt |
-| onbo на другой машине | `https://onbo.internal.example.com` |
+## Действия от имени пользователя
+
+В токене есть необязательный claim `product_token` — ключ самого пользователя к
+вашему API. Если он там есть, onbo подставляет его в запрос при выполнении
+действия, и ваш API применяет обычные права этого человека: ассистент не сможет
+сделать больше, чем человек сделал бы руками. Если claim'а нет — onbo берёт один
+общий ключ из своих настроек (`product.api_key`).
+
+Оборотная сторона: с этим claim'ом в браузере оказывается токен, которым можно
+дёргать ваш API напрямую. Он живёт минуты, и сам человек и так может обратиться
+к API от своего имени — но проверки, которые живут только в вашем HTTP-слое,
+такой запрос обойдёт. Если это важнее, удалите строку `product_token` в
+`token.get.js`.
 
 ## Проверить
 
@@ -73,9 +95,12 @@ runtimeConfig: {
 curl -s -X POST http://localhost:18000/chat -H 'Content-Type: application/json' \
   -d '{"user_id":"u_1042","text":"привет"}'
 
-# 2. ваша ручка отвечает залогиненному (cookie из браузера) и 401 — всем остальным
-curl -s -X POST http://localhost:3000/api/assistant/chat -H 'Content-Type: application/json' \
-  -d '{"text":"привет"}'
+# 2. ваша ручка выдаёт токен залогиненному и 401 — всем остальным
+curl -s http://localhost:3000/api/assistant/token
+
+# 3. с этим токеном onbo узнаёт человека
+curl -s -X POST http://localhost:18000/chat -H 'Content-Type: application/json' \
+  -d '{"token":"<токен из п.2>","text":"привет"}'
 ```
 
 Дальше — обновите страницу: в правом нижнем углу появится пузырь.
@@ -83,5 +108,11 @@ curl -s -X POST http://localhost:3000/api/assistant/chat -H 'Content-Type: appli
 ## Голос
 
 Микрофон браузеры дают только в защищённом контексте — `localhost` считается,
-удалённому хосту нужен HTTPS. Если голос не нужен, удалите `voice.post.js` и
-строку `voiceEndpoint` в плагине: кнопки микрофона просто не будет.
+удалённому хосту нужен HTTPS. Уберите `data-voice-endpoint` — кнопки микрофона
+просто не будет.
+
+## Если onbo нельзя выставлять наружу
+
+Тогда остаётся режим прокси: виджет ходит на ваш домен, вы пересылаете вызовы в
+onbo и подставляете `user_id` на сервере. Это 4–5 ручек вместо одной — как их
+написать, описано в [HOWTO-3](../../HOWTO-3-embed-chat.ru.md).

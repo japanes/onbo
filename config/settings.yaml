@@ -108,6 +108,8 @@ product:
   api_key: ${PRODUCT_API_KEY:-}
   auth_header: ${PRODUCT_AUTH_HEADER:-Authorization}
   auth_scheme: ${PRODUCT_AUTH_SCHEME:-Bearer}
+  # Set to false only for a self-signed https://localhost during development.
+  verify_tls: ${PRODUCT_VERIFY_TLS:-true}
 
 stt:
   enabled: ${STT_ENABLED:-true}        # global voice-input switch (faster-whisper)
