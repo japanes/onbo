@@ -37,7 +37,12 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
     api = getattr(spec, "api", None)
     name = getattr(spec, "name", None)
     description = getattr(spec, "description", "") or (name or "действие")
-    ctx = {"user_id": profile.user_id, **entities}
+    # What a template may refer to, in order of increasing trust: values the
+    # model pulled out of the sentence, then values your backend signed into the
+    # token, then the identity itself. Signed context wins over an extracted
+    # entity of the same name on purpose — otherwise a sentence could talk onbo
+    # into another workspace, or another person's id.
+    ctx = {**entities, **getattr(profile, "context", {}), "user_id": profile.user_id}
 
     if api is None or not (api.url or api.path):
         # Nothing declared to call: treat as an unconfigured action, not a success.
@@ -79,10 +84,16 @@ async def call_product_api(spec, profile: Profile, entities: dict) -> ActionResu
     # product.api_key stays as the fallback for setups with no per-user
     # credential (a backend that trusts onbo wholesale, or the demo backend).
     #
-    # The extra headers go on first: they carry the context the product needs
-    # (active workspace, tenant, locale) but must never be able to replace the
-    # credential — hence the credential is written after them.
-    headers = dict(getattr(profile, "product_headers", None) or {})
+    # The configured context headers go on first: they say where the request
+    # belongs, never who is making it — hence the credential is written after
+    # them and always wins. A header still holding an unfilled placeholder is
+    # dropped: sending a literal "{account_id}" is worse than sending nothing,
+    # because the product would treat it as a real value.
+    headers = {}
+    for header, template in (product.headers or {}).items():
+        value = _render(template, ctx)
+        if "{" not in value:
+            headers[header] = value
     credential = getattr(profile, "product_token", None) or product.api_key
     if credential:
         headers[product.auth_header] = f"{product.auth_scheme or ''} {credential}".strip()

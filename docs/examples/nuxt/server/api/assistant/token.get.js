@@ -77,8 +77,11 @@ export default defineEventHandler(async (event) => {
     // and the action lands somewhere the person was not looking. This route
     // does see those cookies, so it can pass them on. Delete if your API needs
     // no such context.
-    product_headers: {
-      Cookie: `active_account=${getCookie(event, 'active_account') || ''}`,
+    //
+    // Plain values, not headers: how they travel is onbo's business — a header
+    // template in settings.yaml, or `{account_id}` in an action's url or body.
+    context: {
+      account_id: getCookie(event, 'active_account') || '',
     },
   }
 

@@ -147,20 +147,53 @@ it ("if an `Authorization: Bearer …` header is present, take the token from
 there"), and it weakens nothing: whoever holds that token can already call the
 API directly.
 
-A key answers "who is asking". Many products need a second answer — "in what
-context": the active workspace, tenant, locale. That usually lives outside the
-key, in a cookie or a separate header the browser sends — and onbo calls you
-server-to-server, with no cookies, so the product quietly falls back to some
-default context. The action succeeds, just not where the person expected it. The
-second claim, `product_headers`, is for exactly that:
+### 2.4. Request context: the `context` claim
+
+A key answers "who is asking". A product usually needs a second answer — "in
+what context": which workspace is open, which tenant, which language. That lives
+outside the key, in a cookie or a header the browser sends. onbo calls you
+server-to-server, without cookies, so none of it arrives, the product quietly
+falls back to a default — and the action succeeds somewhere the person was not
+looking.
+
+Put a `context` claim in the token — any values you like:
 
 ```js
-{ sub: user.id, product_token: …, product_headers: { Cookie: `active_account=${accountId}` } }
+{ sub: user.id, product_token: …, context: { account_id: 1, locale: 'uk' } }
 ```
 
-onbo puts those headers on the outgoing request. They cannot be forged — they
-are inside the signature; they cannot replace `Authorization` — the credential
-is written last.
+Those values are then ordinary `{placeholders}` in two places.
+
+**In an action** — url, body or query (`config/actions.yaml`):
+
+```yaml
+- name: create_project
+  api:
+    method: POST
+    path: "/api/accounts/{account_id}/projects"
+    body: { name: "{name}" }
+```
+
+**In headers** — when your API expects context as a header or a cookie
+(`config/settings.yaml`):
+
+```yaml
+product:
+  headers:
+    Cookie: "active_account={account_id}"
+    X-Tenant: "{tenant}"
+```
+
+The split is deliberate: your backend knows the *values* and signs them in,
+whoever installs onbo knows *how the API wants to receive them*. A header the
+token cannot fill is simply not sent — better silent than a literal
+`{account_id}` the product would take for a real value.
+
+Three rules keep this from being turned against you: values come only from the
+signed token and never from the request body; signed context beats anything the
+model pulled out of the sentence (saying "create a project in workspace 999" is
+not a way to reach one); and the credential header is written last, so `headers`
+cannot be used to impersonate anyone.
 
 Leave the claim out and onbo falls back to the single key in its own settings
 (`PRODUCT_API_KEY`) — every action then runs as that one service user.

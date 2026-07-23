@@ -94,6 +94,10 @@ def _build_parser() -> argparse.ArgumentParser:
     token.add_argument("--department", default=None)
     token.add_argument("--roles", nargs="*", default=None)
     token.add_argument("--ttl", type=int, default=300, help="Lifetime in seconds (default: 300)")
+    token.add_argument(
+        "--context", nargs="*", default=None, metavar="KEY=VALUE",
+        help="Request context for actions, e.g. account_id=1 locale=uk",
+    )
 
     demo = sub.add_parser("demo-backend", help="Run the bundled demo product backend")
     demo.add_argument("--port", type=int, default=18100)
@@ -201,7 +205,17 @@ async def _run(args: argparse.Namespace) -> None:
             raise SystemExit(
                 "onbo: auth.jwt_secret is not set — put ONBO_JWT_SECRET in .env first."
             )
-        print(sign_token(args.user_id, secret, args.department, args.roles, args.ttl))
+        context = {}
+        for pair in args.context or []:
+            key, _, value = pair.partition("=")
+            if not _:
+                raise SystemExit(f"onbo: --context expects KEY=VALUE, got {pair!r}")
+            context[key] = value
+        print(
+            sign_token(
+                args.user_id, secret, args.department, args.roles, args.ttl, context=context
+            )
+        )
 
     elif args.command == "users":
         from .auth.profiles import import_users, upsert_users

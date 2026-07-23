@@ -108,6 +108,14 @@ product:
   api_key: ${PRODUCT_API_KEY:-}
   auth_header: ${PRODUCT_AUTH_HEADER:-Authorization}
   auth_scheme: ${PRODUCT_AUTH_SCHEME:-Bearer}
+  # Extra headers on every action call, filled from the `context` claim of the
+  # signed token (see auth below). Use them when your API needs to know more
+  # than who is asking — which workspace, which tenant, which language — and
+  # keeps that outside the credential, where a server-to-server call cannot see
+  # it. A header whose placeholder the token does not fill is simply not sent.
+  # headers:
+  #   Cookie: "active_account={account_id}"
+  #   X-Tenant: "{tenant}"
   # Set to false only for a self-signed https://localhost during development.
   verify_tls: ${PRODUCT_VERIFY_TLS:-true}
 

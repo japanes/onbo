@@ -159,23 +159,37 @@ async def test_service_key_is_the_fallback_without_one(monkeypatch):
     assert _FakeClient.calls[0]["headers"]["Authorization"] == "Bearer service-key"
 
 
-async def test_context_headers_ride_along_with_the_request(monkeypatch):
-    # Without them the product answers in whatever context it defaults to — the
+async def test_context_fills_the_configured_headers(monkeypatch):
+    # Without it the product answers in whatever context it defaults to — the
     # action then lands in the wrong workspace and looks like it did nothing.
     _patch_settings(monkeypatch, base_url="http://backend:9000")
+    http_action.load_settings().product.headers = {"Cookie": "active_account={account_id}"}
     _FakeClient.calls = []
     _FakeClient.status = 200
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
 
-    profile = Profile(user_id="acc1", product_headers={"Cookie": "active_account=1"})
+    profile = Profile(user_id="acc1", context={"account_id": "1"})
     res = await http_action.call_product_api(_spec(ApiSpec(path="/api/projects")), profile, {})
     assert res.status == ResultStatus.done
     assert _FakeClient.calls[0]["headers"]["Cookie"] == "active_account=1"
 
 
+async def test_a_header_the_token_cannot_fill_is_left_out(monkeypatch):
+    """A literal "{account_id}" would be read as a real value on the other side."""
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    http_action.load_settings().product.headers = {"Cookie": "active_account={account_id}"}
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    await http_action.call_product_api(_spec(ApiSpec(path="/api/projects")), PROFILE, {})
+    assert "Cookie" not in _FakeClient.calls[0]["headers"]
+
+
 async def test_context_headers_cannot_replace_the_credential(monkeypatch):
     """Otherwise the context claim becomes a way to act as someone else."""
     _patch_settings(monkeypatch, base_url="http://backend:9000")
+    http_action.load_settings().product.headers = {"Authorization": "Bearer {stolen}"}
     _FakeClient.calls = []
     _FakeClient.status = 200
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
@@ -183,10 +197,41 @@ async def test_context_headers_cannot_replace_the_credential(monkeypatch):
     profile = Profile(
         user_id="acc1",
         product_token="the-users-own-key",
-        product_headers={"Authorization": "Bearer somebody-elses-key"},
+        context={"stolen": "somebody-elses-key"},
     )
     await http_action.call_product_api(_spec(ApiSpec(path="/api/projects")), profile, {})
     assert _FakeClient.calls[0]["headers"]["Authorization"] == "Bearer the-users-own-key"
+
+
+async def test_context_reaches_the_url_and_the_body_too(monkeypatch):
+    # The same values templated anywhere: this is what makes it general rather
+    # than a header trick — an API that wants the workspace in the path or the
+    # payload needs no extra mechanism.
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    profile = Profile(user_id="acc1", context={"account_id": "7"})
+    api = ApiSpec(method="POST", path="/api/accounts/{account_id}/projects",
+                  body={"name": "{name}", "account_id": "{account_id}"})
+    await http_action.call_product_api(_spec(api), profile, {"name": "Арбуз"})
+    call = _FakeClient.calls[0]
+    assert call["url"] == "http://backend:9000/api/accounts/7/projects"
+    assert call["json"] == {"name": "Арбуз", "account_id": "7"}
+
+
+async def test_signed_context_beats_a_value_pulled_from_the_sentence(monkeypatch):
+    """«создай проект в воркспейсе 999» must not become a way to reach one."""
+    _patch_settings(monkeypatch, base_url="http://backend:9000")
+    _FakeClient.calls = []
+    _FakeClient.status = 200
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    profile = Profile(user_id="acc1", context={"account_id": "7"})
+    api = ApiSpec(method="POST", path="/api/accounts/{account_id}/projects")
+    await http_action.call_product_api(_spec(api), profile, {"account_id": "999"})
+    assert _FakeClient.calls[0]["url"] == "http://backend:9000/api/accounts/7/projects"
 
 
 def test_a_credential_never_leaks_into_logs_or_records():

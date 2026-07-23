@@ -234,6 +234,15 @@ class ProductSettings(BaseModel):
     api_key: str | None = ""
     auth_header: str = "Authorization"
     auth_scheme: str | None = "Bearer"   # header value = "<scheme> <api_key>"; empty = raw key
+    # Extra headers on every outgoing action call, templated from the signed
+    # token's ``context`` claim — e.g. {"Cookie": "active_account={account_id}"}
+    # for an API that reads the current workspace from a cookie. A header whose
+    # placeholders the token does not fill is left out rather than sent raw.
+    # The credential header always wins: this cannot be used to act as someone
+    # else. This is where the transport lives, deliberately apart from the data:
+    # the caller's backend knows the values, this file knows how your API wants
+    # to receive them.
+    headers: dict[str, str] = Field(default_factory=dict)
     timeout: float = 10.0
     # TLS verification for outgoing calls. Turn it off ONLY to develop against a
     # self-signed https://localhost — with it off, a man in the middle can read
